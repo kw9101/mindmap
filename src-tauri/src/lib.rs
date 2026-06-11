@@ -1,11 +1,20 @@
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Emitter;
+
+#[derive(Default)]
+struct WatchState {
+    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +50,13 @@ pub struct OpenDiffResult {
     files: DiffFiles,
     launched: bool,
     message: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownFileChangedEvent {
+    path: String,
+    kind: String,
 }
 
 #[tauri::command]
@@ -160,9 +176,63 @@ fn open_external_diff(
     }
 }
 
+#[tauri::command]
+fn watch_markdown_file(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WatchState>,
+    path: String,
+) -> Result<(), String> {
+    let target = normalize_watch_path(Path::new(&path))?;
+    let target_key = target.to_string_lossy().to_string();
+    let watch_dir = target
+        .parent()
+        .ok_or_else(|| "Document path has no parent directory.".to_string())?
+        .to_path_buf();
+
+    let mut watchers = state.watchers.lock().map_err(to_string)?;
+    if watchers.contains_key(&target_key) {
+        return Ok(());
+    }
+
+    let event_path = target_key.clone();
+    let event_target = target.clone();
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+        if let Ok(event) = result {
+            if event_matches_path(&event, &event_target) {
+                let _ = app.emit(
+                    "markdown-file-changed",
+                    MarkdownFileChangedEvent {
+                        path: event_path.clone(),
+                        kind: format!("{:?}", event.kind),
+                    },
+                );
+            }
+        }
+    })
+    .map_err(to_string)?;
+
+    watcher
+        .watch(&watch_dir, RecursiveMode::NonRecursive)
+        .map_err(to_string)?;
+    watchers.insert(target_key, watcher);
+    Ok(())
+}
+
+#[tauri::command]
+fn unwatch_markdown_file(
+    state: tauri::State<'_, WatchState>,
+    path: String,
+) -> Result<(), String> {
+    let target = normalize_watch_path(Path::new(&path))?;
+    let target_key = target.to_string_lossy().to_string();
+    state.watchers.lock().map_err(to_string)?.remove(&target_key);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(WatchState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -173,7 +243,9 @@ pub fn run() {
             write_app_state,
             sidecar_path,
             prepare_external_diff_files,
-            open_external_diff
+            open_external_diff,
+            watch_markdown_file,
+            unwatch_markdown_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -280,6 +352,22 @@ fn default_diff_command() -> String {
     }
 }
 
+fn normalize_watch_path(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() {
+        path.canonicalize().map_err(to_string)
+    } else {
+        Ok(path.to_path_buf())
+    }
+}
+
+fn event_matches_path(event: &Event, target: &Path) -> bool {
+    event.paths.iter().any(|path| {
+        normalize_watch_path(path)
+            .map(|event_path| event_path == target)
+            .unwrap_or_else(|_| path == target)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,5 +412,33 @@ mod tests {
         assert!(sidecar_path_for(&document_path)
             .unwrap()
             .ends_with("map.md.mindmap.sqlite"));
+    }
+
+    #[test]
+    fn matches_file_watcher_events_by_target_path() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let document_path = temp_dir.path().join("map.md");
+        let other_path = temp_dir.path().join("other.md");
+        fs::write(&document_path, "# Map\n\n-\n").unwrap();
+        fs::write(&other_path, "# Other\n\n-\n").unwrap();
+        let target = normalize_watch_path(&document_path).unwrap();
+
+        let matching_event = Event {
+            kind: notify::EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![document_path],
+            attrs: notify::event::EventAttributes::new(),
+        };
+        let other_event = Event {
+            kind: notify::EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![other_path],
+            attrs: notify::event::EventAttributes::new(),
+        };
+
+        assert!(event_matches_path(&matching_event, &target));
+        assert!(!event_matches_path(&other_event, &target));
     }
 }

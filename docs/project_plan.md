@@ -623,17 +623,19 @@ SQLite에 저장하지 않는 문서 데이터:
 - 히스토리는 `src/core/history.ts`에 세션 내 undo/redo로 구현했다. 일반 문자 입력도 각 입력 이벤트가 별도 undo 단위가 된다.
 - 문서 상태 머신은 `src/core/document.ts`에 구현했다: clean/dirty, pending/saving/error, clean 외부 변경 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리.
 - Tauri command로 Markdown 파일 읽기, 원자적 저장, metadata 읽기, diff 파일 생성, 외부 diff 도구 실행을 구현했다.
+- 외부 변경 감지는 Tauri file watcher와 polling을 함께 사용한다. watcher는 부모 디렉터리를 감시하고 대상 Markdown 파일 경로만 필터링한다.
 - Tauri 파일 접근은 MVP에서 단일 파일 열기/저장부터 시작한다. 작업 폴더/vault 탐색은 후순위다.
 - SQLite sidecar는 Markdown 파일 옆의 `{파일명}.mindmap.sqlite`로 시작했다. 현재는 view state key-value 저장소로 사용한다.
 - 줌은 문서 변경이 아니라 앱 전용 view state로 취급한다. 툴바 버튼과 `Cmd/Ctrl + +`, `Cmd/Ctrl + -`, `Cmd/Ctrl + 0` 단축키로 조정하며 SQLite view state에 저장된다.
 - Tauri dialog plugin 권한을 `src-tauri/capabilities/default.json`에 추가했다.
 - 키보드 기본 조작은 아웃라이너에 가깝게 시작했다: Enter 형제 추가, Tab 들여쓰기, Shift+Tab 내어쓰기, Cmd/Option+ArrowUp/Down 이동, Cmd/Option+Backspace 삭제.
-- 검증: Vitest 39개 통과, TypeScript check 통과, Vite production build 통과, Rust cargo test 2개 통과, cargo check 통과.
+- 선택 모드를 추가했다. Esc로 편집 모드에서 빠져나오고, 선택 모드에서 ArrowUp/Down/Left/Right로 이전/다음/부모/첫 자식 노드를 선택한다.
+- 클립보드 subtree 복사/붙여넣기를 추가했다. 복사 내용은 앱 전용 메타데이터 없이 Markdown 목록 텍스트만 사용한다.
+- 검증: Vitest 45개 통과, TypeScript check 통과, Vite production build 통과, Rust cargo test 3개 통과, cargo check 통과.
 
 ## 17. 남은 구현 후보
 
-1. file watcher를 추가해 polling과 함께 외부 변경 감지를 강화한다.
-2. 선택 모드와 편집 모드를 더 분리하고, Arrow 키 이동을 정교하게 만든다.
-3. 클립보드 subtree 복사/붙여넣기 UI를 추가한다. 클립보드에는 Markdown 목록 텍스트만 넣고 앱 전용 메타데이터는 넣지 않는다.
-4. pan을 UI에 추가하고 SQLite view state에 연결한다.
-5. 명시적 정규화 명령을 추가한다.
+1. pan을 UI에 추가하고 SQLite view state에 연결한다.
+2. 명시적 정규화 명령을 추가한다.
+3. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
+4. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

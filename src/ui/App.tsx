@@ -23,6 +23,7 @@ import {
   type HistoryState
 } from "../core/history";
 import type { Direction, Mindmap, MindmapNode } from "../core/model";
+import { parseClipboardNodes, serializeNodeForClipboard } from "../core/clipboard";
 import { parseMindmap } from "../core/parser";
 import { serializeMindmap } from "../core/serializer";
 import {
@@ -31,12 +32,15 @@ import {
   addSiblingNode,
   deleteNode,
   findNode,
+  firstChildNodePath,
   firstNodePath,
   indentNode,
+  insertSiblingNodes,
   moveNodeDown,
   moveNodeUp,
   nextNodePath,
   outdentNode,
+  parentNodePath,
   previousNodePath,
   updateNodeText,
   updateRootTitle
@@ -54,11 +58,14 @@ import {
 } from "../core/viewState";
 import {
   isNativeAvailable,
+  listenMarkdownFileChanged,
   openExternalDiff,
   pickOpenMarkdownPath,
   pickSaveMarkdownPath,
   readAppState,
   readMarkdownFile,
+  unwatchMarkdownFile,
+  watchMarkdownFile,
   writeAppState,
   writeMarkdownFileAtomic,
   type DiffFiles
@@ -125,6 +132,14 @@ export function App() {
     },
     [commitSource]
   );
+
+  const selectNode = useCallback((path: string, editing: boolean) => {
+    setViewState((current) => ({
+      ...current,
+      selectedNodePath: path,
+      editingNodePath: editing ? path : null
+    }));
+  }, []);
 
   const saveCurrent = useCallback(
     async (path: string) => {
@@ -250,6 +265,49 @@ export function App() {
     }));
   }, []);
 
+  const handleCopySubtree = useCallback(async () => {
+    if (!mindmap || !viewState.selectedNodePath) {
+      return;
+    }
+
+    const node = findNode(mindmap, viewState.selectedNodePath);
+    if (!node) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(serializeNodeForClipboard(node));
+      setNotice("선택한 노드를 Markdown 목록으로 복사했습니다.");
+    } catch (error) {
+      setNotice(`클립보드에 쓸 수 없습니다: ${errorMessage(error)}`);
+    }
+  }, [mindmap, viewState.selectedNodePath]);
+
+  const handlePasteSubtree = useCallback(async () => {
+    if (!mindmap || !viewState.selectedNodePath) {
+      return;
+    }
+
+    const target = findNode(mindmap, viewState.selectedNodePath);
+    if (!target) {
+      return;
+    }
+
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = parseClipboardNodes(text, target.direction);
+      if (!parsed.ok) {
+        setNotice(`붙여넣기 Markdown을 읽을 수 없습니다: ${parsed.diagnostics[0].code}`);
+        return;
+      }
+
+      const next = insertSiblingNodes(mindmap, target.path, parsed.nodes);
+      commitMindmap(next, "Paste nodes", nextNodePath(next, target.path));
+    } catch (error) {
+      setNotice(`클립보드에서 읽을 수 없습니다: ${errorMessage(error)}`);
+    }
+  }, [commitMindmap, mindmap, viewState.selectedNodePath]);
+
   const handlePrepareDiff = useCallback(async () => {
     if (!activeDocument.file || !activeDocument.conflict) {
       return;
@@ -287,6 +345,38 @@ export function App() {
     replaceDocument(chooseAppVersion(activeDocument), "Keep app version");
     setDiffFiles(null);
   }, [activeDocument, replaceDocument]);
+
+  const applyExternalFileSnapshot = useCallback((snapshot: FileSnapshot) => {
+    setHistory((current) => {
+      const currentDocument = current.present.value;
+      if (
+        currentDocument.file?.path !== snapshot.path ||
+        currentDocument.saveStatus === "saving"
+      ) {
+        return current;
+      }
+
+      const result = applyExternalSnapshot(currentDocument, snapshot);
+      if (result.kind === "unchanged") {
+        return current;
+      }
+
+      if (result.kind === "reloaded") {
+        const reloaded = parseMindmap(result.state.source);
+        setViewState(
+          createDefaultViewState(reloaded.ok ? firstNodePath(reloaded.mindmap) : "")
+        );
+        return commitHistory(
+          current,
+          result.state,
+          "Reload external changes",
+          documentsEqual
+        );
+      }
+
+      return replacePresent(current, result.state, result.kind);
+    });
+  }, []);
 
   useEffect(() => {
     if (!nativeAvailable || !activeDocument.file) {
@@ -345,41 +435,54 @@ export function App() {
     const path = activeDocument.file.path;
     const timer = window.setInterval(() => {
       void readMarkdownFile(path)
-        .then((snapshot) => {
-          setHistory((current) => {
-            const currentDocument = current.present.value;
-            if (currentDocument.file?.path !== path) {
-              return current;
-            }
-
-            const result = applyExternalSnapshot(currentDocument, snapshot);
-            if (result.kind === "unchanged") {
-              return current;
-            }
-
-            if (result.kind === "reloaded") {
-              const reloaded = parseMindmap(result.state.source);
-              setViewState(
-                createDefaultViewState(reloaded.ok ? firstNodePath(reloaded.mindmap) : "")
-              );
-              return commitHistory(
-                current,
-                result.state,
-                "Reload external changes",
-                documentsEqual
-              );
-            }
-
-            return replacePresent(current, result.state, result.kind);
-          });
-        })
+        .then(applyExternalFileSnapshot)
         .catch(() => {
           // Polling failure should not disturb the current editable document.
         });
     }, externalPollMs);
 
     return () => window.clearInterval(timer);
-  }, [activeDocument.file, nativeAvailable]);
+  }, [activeDocument.file, applyExternalFileSnapshot, nativeAvailable]);
+
+  useEffect(() => {
+    if (!nativeAvailable || !activeDocument.file) {
+      return;
+    }
+
+    const path = activeDocument.file.path;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void watchMarkdownFile(path).catch(() => {
+      // Polling remains the fallback when a native watcher cannot start.
+    });
+
+    void listenMarkdownFileChanged((event) => {
+      if (disposed || event.path !== path) {
+        return;
+      }
+
+      void readMarkdownFile(path)
+        .then(applyExternalFileSnapshot)
+        .catch(() => {
+          // A transient watcher read failure should not disturb editing.
+        });
+    }).then((dispose) => {
+      if (disposed) {
+        dispose();
+      } else {
+        unlisten = dispose;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+      void unwatchMarkdownFile(path).catch(() => {
+        // The watcher is best-effort and polling remains available.
+      });
+    };
+  }, [activeDocument.file, applyExternalFileSnapshot, nativeAvailable]);
 
   useEffect(() => {
     if (!mindmap) {
@@ -411,6 +514,7 @@ export function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
+      const editing = viewState.editingNodePath !== null;
       if ((event.metaKey || event.ctrlKey) && key === "s") {
         event.preventDefault();
         void handleSave();
@@ -435,19 +539,68 @@ export function App() {
       } else if ((event.metaKey || event.ctrlKey) && event.key === "0") {
         event.preventDefault();
         handleResetZoom();
+      } else if (!editing && (event.metaKey || event.ctrlKey) && key === "c") {
+        event.preventDefault();
+        void handleCopySubtree();
+      } else if (!editing && (event.metaKey || event.ctrlKey) && key === "v") {
+        event.preventDefault();
+        void handlePasteSubtree();
+      } else if (!editing && mindmap && viewState.selectedNodePath) {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          selectNode(previousNodePath(mindmap, viewState.selectedNodePath), false);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          selectNode(nextNodePath(mindmap, viewState.selectedNodePath), false);
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          selectNode(parentNodePath(mindmap, viewState.selectedNodePath), false);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          selectNode(firstChildNodePath(mindmap, viewState.selectedNodePath), false);
+        } else if (event.key === "Enter" || event.key === " " || event.key === "F2") {
+          event.preventDefault();
+          selectNode(viewState.selectedNodePath, true);
+        } else if (event.key === "Tab") {
+          event.preventDefault();
+          const next = event.shiftKey
+            ? outdentNode(mindmap, viewState.selectedNodePath)
+            : indentNode(mindmap, viewState.selectedNodePath);
+          commitMindmap(
+            next,
+            event.shiftKey ? "Outdent node" : "Indent node",
+            remapPathAfterTextMatch(next, viewState.selectedNodePath)
+          );
+        } else if (event.key === "Backspace" || event.key === "Delete") {
+          event.preventDefault();
+          const fallback = previousNodePath(mindmap, viewState.selectedNodePath);
+          const next = deleteNode(mindmap, viewState.selectedNodePath);
+          commitMindmap(
+            next,
+            "Delete node",
+            findNode(next, fallback) ? fallback : firstNodePath(next)
+          );
+        }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    commitMindmap,
+    handleCopySubtree,
     handleOpen,
+    handlePasteSubtree,
     handleRedo,
     handleResetZoom,
     handleSave,
     handleUndo,
     handleZoomIn,
-    handleZoomOut
+    handleZoomOut,
+    mindmap,
+    selectNode,
+    viewState.editingNodePath,
+    viewState.selectedNodePath
   ]);
 
   const rightNodes = mindmap?.children.filter((node) => node.direction === "right") ?? [];
@@ -461,13 +614,8 @@ export function App() {
       node={node}
       side={side}
       selectedPath={viewState.selectedNodePath}
-      onSelect={(path) =>
-        setViewState((current) => ({
-          ...current,
-          selectedNodePath: path,
-          editingNodePath: path
-        }))
-      }
+      onSelect={(path) => selectNode(path, true)}
+      onExitEditing={(path) => selectNode(path, false)}
       onTextChange={(path, text) => {
         commitMindmap(updateNodeText(mindmap!, path, text), "Edit node text", path);
       }}
@@ -529,6 +677,20 @@ export function App() {
           </button>
           <button type="button" onClick={handleRedo} disabled={!canRedo(history)}>
             Redo
+          </button>
+          <button
+            type="button"
+            onClick={handleCopySubtree}
+            disabled={!mindmap || !viewState.selectedNodePath}
+          >
+            Copy
+          </button>
+          <button
+            type="button"
+            onClick={handlePasteSubtree}
+            disabled={!mindmap || !viewState.selectedNodePath}
+          >
+            Paste
           </button>
           {mindmap && (
             <>
@@ -683,6 +845,7 @@ function NodeEditor({
   side,
   selectedPath,
   onSelect,
+  onExitEditing,
   onTextChange,
   onAddChild,
   onAddSibling,
@@ -696,6 +859,7 @@ function NodeEditor({
   side: Direction;
   selectedPath: string;
   onSelect: (path: string) => void;
+  onExitEditing: (path: string) => void;
   onTextChange: (path: string, text: string) => void;
   onAddChild: (path: string) => void;
   onAddSibling: (path: string) => void;
@@ -715,6 +879,7 @@ function NodeEditor({
             side={side}
             selectedPath={selectedPath}
             onSelect={onSelect}
+            onExitEditing={onExitEditing}
             onTextChange={onTextChange}
             onAddChild={onAddChild}
             onAddSibling={onAddSibling}
@@ -745,6 +910,10 @@ function NodeEditor({
             if (event.key === "Enter") {
               event.preventDefault();
               onAddSibling(node.path);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              onExitEditing(node.path);
+              event.currentTarget.blur();
             } else if (event.key === "Tab") {
               event.preventDefault();
               if (event.shiftKey) {

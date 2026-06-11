@@ -143,6 +143,47 @@ export function moveNodeDown(mindmap: Mindmap, path: string): Mindmap {
   return normalizeMindmap(next);
 }
 
+export function insertSiblingNodes(
+  mindmap: Mindmap,
+  path: string,
+  nodes: MindmapNode[]
+): Mindmap {
+  if (nodes.length === 0) {
+    return mindmap;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const location = findNodeLocation(next, path);
+  if (!location) {
+    return mindmap;
+  }
+
+  const inserted = nodes.map((node) => cloneWithDirection(node, location.node.direction));
+  location.siblings.splice(location.index + 1, 0, ...inserted);
+  return normalizeMindmap(next);
+}
+
+export function insertChildNodes(
+  mindmap: Mindmap,
+  path: string,
+  nodes: MindmapNode[]
+): Mindmap {
+  if (nodes.length === 0) {
+    return mindmap;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const location = findNodeLocation(next, path);
+  if (!location) {
+    return mindmap;
+  }
+
+  location.node.children.push(
+    ...nodes.map((node) => cloneWithDirection(node, location.node.direction))
+  );
+  return normalizeMindmap(next);
+}
+
 export function findNode(mindmap: Mindmap, path: string): MindmapNode | null {
   return findNodeLocation(mindmap, path)?.node ?? null;
 }
@@ -173,6 +214,16 @@ export function previousNodePath(mindmap: Mindmap, path: string): string {
   }
 
   return nodes[Math.max(index - 1, 0)].path;
+}
+
+export function parentNodePath(mindmap: Mindmap, path: string): string {
+  const location = findNodeLocation(mindmap, path);
+  return location?.parent?.path ?? path;
+}
+
+export function firstChildNodePath(mindmap: Mindmap, path: string): string {
+  const node = findNode(mindmap, path);
+  return node?.children[0]?.path ?? path;
 }
 
 export function firstNodePath(mindmap: Mindmap): string {
@@ -251,6 +302,12 @@ function setSubtreeDirection(node: MindmapNode, direction: Direction): void {
   for (const child of node.children) {
     setSubtreeDirection(child, direction);
   }
+}
+
+function cloneWithDirection(node: MindmapNode, direction: Direction): MindmapNode {
+  const cloned = cloneNode(node);
+  setSubtreeDirection(cloned, direction);
+  return cloned;
 }
 
 function normalizeSectionOrder(order: Direction[], children: MindmapNode[]): Direction[] {

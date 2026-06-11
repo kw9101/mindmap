@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { FileSnapshot } from "../core/document";
 
 export type FileMetadata = Omit<FileSnapshot, "contents">;
@@ -12,6 +13,11 @@ export type OpenDiffResult = {
   files: DiffFiles;
   launched: boolean;
   message: string;
+};
+
+export type MarkdownFileChangedEvent = {
+  path: string;
+  kind: string;
 };
 
 declare global {
@@ -107,5 +113,21 @@ export async function openExternalDiff(
     appSource,
     diskSource,
     diffCommand
+  });
+}
+
+export async function watchMarkdownFile(path: string): Promise<void> {
+  await invoke("watch_markdown_file", { path });
+}
+
+export async function unwatchMarkdownFile(path: string): Promise<void> {
+  await invoke("unwatch_markdown_file", { path });
+}
+
+export async function listenMarkdownFileChanged(
+  handler: (event: MarkdownFileChangedEvent) => void
+): Promise<UnlistenFn> {
+  return listen<MarkdownFileChangedEvent>("markdown-file-changed", (event) => {
+    handler(event.payload);
   });
 }

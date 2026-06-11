@@ -32,9 +32,11 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 세션 내 undo/redo
 - Tauri command 기반 Markdown 파일 열기/원자적 저장
 - 지연 자동 저장
-- 외부 변경 polling, clean 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리
+- 외부 변경 file watcher + polling, clean 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리
 - 외부 diff 도구 실행용 임시 파일 생성 및 실행 명령
 - SQLite sidecar 기반 view state 저장
+- 선택 모드 기반 키보드 이동
+- Markdown subtree 클립보드 복사/붙여넣기
 - 기능별 unit test
 
 ## 개발 실행
@@ -81,6 +83,13 @@ pnpm tauri dev
 - `Option+ArrowUp` 또는 `Cmd+ArrowUp`: 형제 순서에서 위로 이동
 - `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
+- `Esc`: 편집 모드에서 선택 모드로 전환
+- 선택 모드 `ArrowUp` / `ArrowDown`: 이전/다음 노드 선택
+- 선택 모드 `ArrowLeft`: 부모 노드 선택
+- 선택 모드 `ArrowRight`: 첫 자식 노드 선택
+- 선택 모드 `Enter`, `Space`, `F2`: 선택 노드 편집
+- 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
+- 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - `Cmd+Z`: undo
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
 - `Cmd+S`: 저장 또는 다른 이름 저장
@@ -88,7 +97,7 @@ pnpm tauri dev
 
 ## 다음 행동
 
-1. 파일 watcher를 추가해 polling과 함께 외부 변경 감지를 강화한다.
-2. 선택/편집 모드와 키보드 이동을 더 정교하게 다듬는다.
-3. 클립보드 subtree 복사/붙여넣기 UI를 추가한다.
-4. 줌/팬을 SQLite view state에 연결한다.
+1. pan을 UI에 추가하고 SQLite view state에 연결한다.
+2. 명시적 정규화 명령을 추가한다.
+3. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
+4. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

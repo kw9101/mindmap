@@ -7,11 +7,15 @@ import {
   addSiblingNode,
   createInitialMindmap,
   deleteNode,
+  firstChildNodePath,
   flattenNodes,
   indentNode,
+  insertChildNodes,
+  insertSiblingNodes,
   moveNodeDown,
   moveNodeUp,
   outdentNode,
+  parentNodePath,
   updateNodeText
 } from "./tree";
 
@@ -160,6 +164,65 @@ describe("mindmap tree commands", () => {
     expect(serializeMindmap(mindmap)).toBe(`# Map
 
 -
+`);
+  });
+
+  it("finds parent and first child paths for keyboard selection", () => {
+    const mindmap = parse(`# Map
+
+- A
+  - B
+`);
+
+    expect(parentNodePath(mindmap, "right/0/0")).toBe("right/0");
+    expect(parentNodePath(mindmap, "right/0")).toBe("right/0");
+    expect(firstChildNodePath(mindmap, "right/0")).toBe("right/0/0");
+    expect(firstChildNodePath(mindmap, "right/0/0")).toBe("right/0/0");
+  });
+
+  it("inserts copied nodes as siblings or children with inherited direction", () => {
+    const mindmap = parse(`# Map
+
+## Right
+
+- A
+
+## Left
+
+- L
+`);
+    const copied = parse(`# Copy
+
+- B
+  - B-1
+`).children;
+
+    const asSibling = insertSiblingNodes(mindmap, "left/0", copied);
+    expect(serializeMindmap(asSibling)).toBe(`# Map
+
+## Right
+
+- A
+
+## Left
+
+- L
+- B
+  - B-1
+`);
+
+    const asChild = insertChildNodes(mindmap, "left/0", copied);
+    expect(serializeMindmap(asChild)).toBe(`# Map
+
+## Right
+
+- A
+
+## Left
+
+- L
+  - B
+    - B-1
 `);
   });
 });
