@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import {
+  createDefaultViewState,
+  formatZoom,
+  parseViewState,
+  resetZoom,
+  serializeViewState,
+  zoomIn,
+  zoomOut
+} from "./viewState";
+
+describe("view state", () => {
+  it("serializes view state as app-only JSON for SQLite", () => {
+    const viewState = createDefaultViewState("right/0");
+
+    expect(JSON.parse(serializeViewState(viewState))).toEqual({
+      selectedNodePath: "right/0",
+      editingNodePath: "right/0",
+      zoom: 1,
+      pan: { x: 0, y: 0 }
+    });
+  });
+
+  it("falls back when stored SQLite state is missing or corrupt", () => {
+    expect(parseViewState(null, "right/0")).toMatchObject({
+      selectedNodePath: "right/0"
+    });
+    expect(parseViewState("{", "right/1")).toMatchObject({
+      selectedNodePath: "right/1"
+    });
+  });
+
+  it("sanitizes optional fields when loading", () => {
+    const loaded = parseViewState(
+      JSON.stringify({
+        selectedNodePath: "right/2",
+        editingNodePath: null,
+        zoom: 3,
+        pan: { x: 10, y: Number.NaN }
+      }),
+      "right/0"
+    );
+
+    expect(loaded).toEqual({
+      selectedNodePath: "right/2",
+      editingNodePath: null,
+      zoom: 2,
+      pan: { x: 10, y: 0 }
+    });
+  });
+
+  it("changes zoom in fixed clamped steps", () => {
+    expect(zoomIn(1)).toBe(1.1);
+    expect(zoomOut(1)).toBe(0.9);
+    expect(zoomIn(2)).toBe(2);
+    expect(zoomOut(0.5)).toBe(0.5);
+    expect(resetZoom()).toBe(1);
+    expect(formatZoom(1.234)).toBe("123%");
+  });
+});
