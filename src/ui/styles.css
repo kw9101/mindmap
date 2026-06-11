@@ -426,6 +426,12 @@ button:disabled:hover {
 }
 
 @media (max-width: 800px) {
+  .topbar {
+    height: auto;
+    min-height: 58px;
+    gap: 8px;
+  }
+
   .topbar,
   .notice,
   .conflict-panel {
@@ -436,6 +442,10 @@ button:disabled:hover {
   .toolbar,
   .conflict-actions {
     justify-content: flex-start;
+  }
+
+  .toolbar {
+    gap: 6px;
   }
 
   .zoom-controls {
@@ -449,22 +459,27 @@ button:disabled:hover {
 
   .workspace {
     grid-template-columns: 1fr;
-    align-items: stretch;
+    align-items: center;
+    justify-items: center;
+    gap: 20px;
+    padding: 24px 20px;
   }
 
   .branch,
   .branch-left,
   .branch-right {
     min-height: auto;
-    align-items: stretch;
+    width: 100%;
+    align-items: center;
   }
 
   .node-subtree,
   .node-subtree.left,
   .node-subtree.right {
     flex-direction: column;
-    align-items: stretch;
+    align-items: center;
     gap: 8px;
+    max-width: 100%;
   }
 
   .node-subtree.left > .node-row {
@@ -473,12 +488,13 @@ button:disabled:hover {
 
   .node-row,
   .node-subtree.left > .node-row {
-    align-items: stretch;
+    align-items: center;
     flex-direction: column;
+    max-width: 100%;
   }
 
   .node-actions {
-    align-self: flex-start;
+    align-self: center;
   }
 
   .child-column,
@@ -487,8 +503,9 @@ button:disabled:hover {
   .root-child-column,
   .branch-right .root-child-column,
   .branch-left .root-child-column {
-    align-items: stretch;
+    align-items: center;
     padding: 0;
+    max-width: 100%;
   }
 
   .root-node::before,
@@ -508,6 +525,12 @@ button:disabled:hover {
 
   .root-node input,
   .node-input {
-    width: 100%;
+    width: min(280px, calc(100vw - 56px));
+    max-width: 280px;
+  }
+
+  .root-node input {
+    width: min(260px, calc(100vw - 56px));
+    max-width: 260px;
   }
 }
