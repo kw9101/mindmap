@@ -38,6 +38,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 선택 모드 기반 키보드 이동
 - Markdown subtree 클립보드 복사/붙여넣기
 - 기능별 unit test
+- Playwright 기반 e2e user-flow test
 
 ## 개발 실행
 
@@ -51,7 +52,10 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 
 ```bash
 pnpm install
+pnpm exec playwright install chromium
 pnpm test
+pnpm e2e
+pnpm test:all
 pnpm dev -- --port 1420
 ```
 
@@ -77,9 +81,11 @@ pnpm tauri dev
 
 ## 기본 조작
 
-- `Enter`: 선택 노드 다음에 형제 노드 추가
-- `Tab`: 선택 노드를 이전 형제의 자식으로 들여쓰기
-- `Shift+Tab`: 선택 노드를 부모 다음 형제로 내어쓰기
+- 편집 중 `Enter`: 선택 노드 다음에 형제 노드 추가
+- 편집 중 `Tab`: 선택 노드 아래에 자식 노드 추가
+- 편집 중 `Shift+Tab`: 선택 노드를 부모 다음 형제로 내어쓰기
+- 선택 모드 `Tab`: 선택 노드를 이전 형제의 자식으로 들여쓰기
+- 선택 모드 `Shift+Tab`: 선택 노드를 부모 다음 형제로 내어쓰기
 - `Option+ArrowUp` 또는 `Cmd+ArrowUp`: 형제 순서에서 위로 이동
 - `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
