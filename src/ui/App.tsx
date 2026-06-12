@@ -46,7 +46,6 @@ import {
   deleteNode,
   findNode,
   firstNodePath,
-  horizontalNodePath,
   insertSiblingNodes,
   isRootNodePath,
   moveNodeDown,
@@ -107,6 +106,8 @@ type FocusedNodeTarget = {
   editing: boolean;
 };
 
+type SpatialDirection = "up" | "down" | "left" | "right";
+
 const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
   {
     title: "편집 중",
@@ -124,9 +125,8 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
   {
     title: "선택 모드",
     shortcuts: [
-      { keys: "ArrowUp/Down", action: "위/아래 형제 노드 선택" },
-      { keys: "ArrowLeft", action: "화면상 왼쪽 노드 선택" },
-      { keys: "ArrowRight", action: "화면상 오른쪽 노드 선택" },
+      { keys: "ArrowUp/Down", action: "화면상 위/아래 노드 선택" },
+      { keys: "ArrowLeft/Right", action: "화면상 왼쪽/오른쪽 노드 선택" },
       { keys: "Enter", action: "편집 시작" },
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
@@ -772,18 +772,13 @@ export function App() {
         event.preventDefault();
         void handlePasteSubtree();
       } else if (!editing && mindmap && viewState.selectedNodePath) {
-        if (event.key === "ArrowUp") {
+        const spatialDirection = spatialDirectionForKey(event.key);
+        if (spatialDirection) {
           event.preventDefault();
-          selectNode(previousSiblingNodePath(mindmap, viewState.selectedNodePath), false);
-        } else if (event.key === "ArrowDown") {
-          event.preventDefault();
-          selectNode(nextSiblingNodePath(mindmap, viewState.selectedNodePath), false);
-        } else if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          selectNode(horizontalNodePath(mindmap, viewState.selectedNodePath, "left"), false);
-        } else if (event.key === "ArrowRight") {
-          event.preventDefault();
-          selectNode(horizontalNodePath(mindmap, viewState.selectedNodePath, "right"), false);
+          selectNode(
+            spatialNodePath(workspaceRef.current, viewState.selectedNodePath, spatialDirection),
+            false
+          );
         } else if (event.key === "Enter") {
           event.preventDefault();
           selectNode(viewState.selectedNodePath, true);
@@ -1609,6 +1604,141 @@ function remapPathAfterDeleting(
 
 function samePathParts(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((part, index) => part === right[index]);
+}
+
+function spatialDirectionForKey(key: string): SpatialDirection | null {
+  if (key === "ArrowUp") {
+    return "up";
+  }
+
+  if (key === "ArrowDown") {
+    return "down";
+  }
+
+  if (key === "ArrowLeft") {
+    return "left";
+  }
+
+  if (key === "ArrowRight") {
+    return "right";
+  }
+
+  return null;
+}
+
+function spatialNodePath(
+  workspace: HTMLElement | null,
+  currentPath: string,
+  direction: SpatialDirection
+): string {
+  if (!workspace) {
+    return currentPath;
+  }
+
+  const currentElement = nodeElement(workspace, currentPath);
+  if (!currentElement) {
+    return currentPath;
+  }
+
+  const currentRect = currentElement.getBoundingClientRect();
+  const currentCenter = rectCenter(currentRect);
+  let bestCandidate: { path: string; score: number } | null = null;
+
+  const nodeElements = Array.from(
+    workspace.querySelectorAll<HTMLElement>("[data-node-path]")
+  );
+  for (const candidate of nodeElements) {
+    const candidatePath = candidate.dataset.nodePath;
+    if (!candidatePath || candidatePath === currentPath) {
+      continue;
+    }
+
+    const candidateRect = candidate.getBoundingClientRect();
+    const candidateCenter = rectCenter(candidateRect);
+    const primaryDistance = directionalDistance(
+      currentCenter,
+      candidateCenter,
+      direction
+    );
+    if (primaryDistance <= 1) {
+      continue;
+    }
+
+    const secondaryDistance = perpendicularDistance(
+      currentCenter,
+      candidateCenter,
+      direction
+    );
+    const crossesCurrentBeam = perpendicularOverlap(currentRect, candidateRect, direction) > 0;
+    const score =
+      primaryDistance +
+      secondaryDistance * (crossesCurrentBeam ? 2 : 6) +
+      (crossesCurrentBeam ? 0 : 1000);
+
+    if (!bestCandidate || score < bestCandidate.score) {
+      bestCandidate = { path: candidatePath, score };
+    }
+  }
+
+  return bestCandidate?.path ?? currentPath;
+}
+
+function rectCenter(rect: DOMRect): { x: number; y: number } {
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2
+  };
+}
+
+function directionalDistance(
+  origin: { x: number; y: number },
+  target: { x: number; y: number },
+  direction: SpatialDirection
+): number {
+  if (direction === "left") {
+    return origin.x - target.x;
+  }
+
+  if (direction === "right") {
+    return target.x - origin.x;
+  }
+
+  if (direction === "up") {
+    return origin.y - target.y;
+  }
+
+  return target.y - origin.y;
+}
+
+function perpendicularDistance(
+  origin: { x: number; y: number },
+  target: { x: number; y: number },
+  direction: SpatialDirection
+): number {
+  return direction === "left" || direction === "right"
+    ? Math.abs(target.y - origin.y)
+    : Math.abs(target.x - origin.x);
+}
+
+function perpendicularOverlap(
+  origin: DOMRect,
+  target: DOMRect,
+  direction: SpatialDirection
+): number {
+  if (direction === "left" || direction === "right") {
+    return rangeOverlap(origin.top, origin.bottom, target.top, target.bottom);
+  }
+
+  return rangeOverlap(origin.left, origin.right, target.left, target.right);
+}
+
+function rangeOverlap(
+  firstStart: number,
+  firstEnd: number,
+  secondStart: number,
+  secondEnd: number
+): number {
+  return Math.max(0, Math.min(firstEnd, secondEnd) - Math.max(firstStart, secondStart));
 }
 
 function buildConnectorPaths(

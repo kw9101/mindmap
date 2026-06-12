@@ -94,9 +94,8 @@ pnpm tauri dev
 - `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
 - `Esc`: 편집 모드에서 선택 모드로 전환. 빈 일반 노드에서는 해당 노드 삭제
-- 선택 모드 `ArrowUp` / `ArrowDown`: 위/아래 형제 노드 선택
-- 선택 모드 `ArrowLeft`: 화면상 왼쪽 노드 선택
-- 선택 모드 `ArrowRight`: 화면상 오른쪽 노드 선택
+- 선택 모드 `ArrowUp` / `ArrowDown`: 화면상 위/아래에 있는 가장 가까운 노드 선택
+- 선택 모드 `ArrowLeft` / `ArrowRight`: 화면상 왼쪽/오른쪽에 있는 가장 가까운 노드 선택
 - 선택 모드 `Enter`: 선택 노드 편집
 - 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기

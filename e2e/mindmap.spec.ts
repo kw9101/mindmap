@@ -243,7 +243,7 @@ test("arrow navigation can move between the first node and the root", async ({ p
   await expect(firstNode).toHaveClass(/selected/);
 });
 
-test("left branch horizontal arrows follow visual direction", async ({ page }) => {
+test("left branch arrows follow the nearest visible node", async ({ page }) => {
   const root = page.getByLabel("Root heading");
 
   await page.getByRole("button", { name: "Add left root node" }).click();
@@ -294,7 +294,7 @@ test("selection mode Enter starts editing without moving nodes", async ({ page }
   await expect(markdownOutput(page)).toHaveText("#\n\n- Parent!\n  - Child\n");
 });
 
-test("ArrowDown moves to the lower sibling instead of the first child", async ({
+test("ArrowDown moves to the nearest lower visible node", async ({
   page
 }) => {
   const parent = nodeInput(page, "right/0");

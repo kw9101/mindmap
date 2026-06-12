@@ -10,7 +10,6 @@ import {
   deleteNode,
   firstChildNodePath,
   flattenNodes,
-  horizontalNodePath,
   indentNode,
   insertChildNodes,
   insertSiblingNodes,
@@ -233,28 +232,6 @@ describe("mindmap tree commands", () => {
     expect(previousNodePath(mindmap, "right/0")).toBe(rootNodePath);
     expect(previousNodePath(mindmap, rootNodePath)).toBe(rootNodePath);
     expect(nextNodePath(mindmap, rootNodePath)).toBe("right/0");
-  });
-
-  it("finds horizontal paths using visual left and right directions", () => {
-    const mindmap = parse(`# Map
-
-## Right
-
-- R
-  - R child
-
-## Left
-
-- L
-  - L child
-`);
-
-    expect(horizontalNodePath(mindmap, rootNodePath, "right")).toBe("right/0");
-    expect(horizontalNodePath(mindmap, rootNodePath, "left")).toBe("left/0");
-    expect(horizontalNodePath(mindmap, "right/0", "left")).toBe(rootNodePath);
-    expect(horizontalNodePath(mindmap, "right/0", "right")).toBe("right/0/0");
-    expect(horizontalNodePath(mindmap, "left/0", "left")).toBe("left/0/0");
-    expect(horizontalNodePath(mindmap, "left/0", "right")).toBe(rootNodePath);
   });
 
   it("inserts copied nodes as siblings or children with inherited direction", () => {
