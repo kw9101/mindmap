@@ -36,6 +36,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 외부 diff 도구 실행용 임시 파일 생성 및 실행 명령
 - SQLite sidecar 기반 view state 저장
 - 선택 모드 기반 키보드 이동
+- 키바인딩 도움말
 - Markdown subtree 클립보드 복사/붙여넣기
 - 기능별 unit test
 - Playwright 기반 e2e user-flow test
@@ -100,6 +101,7 @@ pnpm tauri dev
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
 - `Cmd+S`: 저장 또는 다른 이름 저장
 - `Cmd+O`: Markdown 파일 열기
+- `?` 또는 `Cmd/Ctrl+/`: 키바인딩 도움말
 
 ## 다음 행동
 

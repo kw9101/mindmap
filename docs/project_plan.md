@@ -630,9 +630,10 @@ SQLite에 저장하지 않는 문서 데이터:
 - 줌은 문서 변경이 아니라 앱 전용 view state로 취급한다. 툴바 버튼과 `Cmd/Ctrl + +`, `Cmd/Ctrl + -`, `Cmd/Ctrl + 0` 단축키로 조정하며 SQLite view state에 저장된다.
 - Tauri dialog plugin 권한을 `src-tauri/capabilities/default.json`에 추가했다.
 - 키보드 기본 조작은 아웃라이너에 가깝게 시작했다: Enter 형제 추가, Tab 들여쓰기, Shift+Tab 내어쓰기, Cmd/Option+ArrowUp/Down 이동, Cmd/Option+Backspace 삭제.
+- 키바인딩 도움말을 추가했다. 툴바 `?` 버튼, 선택 모드 `?`, `Cmd/Ctrl + /`로 현재 구현된 단축키를 확인할 수 있다.
 - 선택 모드를 추가했다. Esc로 편집 모드에서 빠져나오고, 선택 모드에서 ArrowUp/Down/Left/Right로 이전/다음/부모/첫 자식 노드를 선택한다.
 - 클립보드 subtree 복사/붙여넣기를 추가했다. 복사 내용은 앱 전용 메타데이터 없이 Markdown 목록 텍스트만 사용한다.
-- 검증: Vitest 45개 통과, TypeScript check 통과, Vite production build 통과, Rust cargo test 3개 통과, cargo check 통과.
+- 검증: Vitest 55개 통과, Playwright e2e 14개 통과, TypeScript check 통과, Vite production build 통과.
 
 ## 17. 남은 구현 후보
 

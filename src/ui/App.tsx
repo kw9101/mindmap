@@ -78,6 +78,54 @@ import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 const autosaveDelayMs = 700;
 const externalPollMs = 2500;
 
+type KeyboardShortcutGroup = {
+  title: string;
+  shortcuts: { keys: string; action: string }[];
+};
+
+const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
+  {
+    title: "편집 중",
+    shortcuts: [
+      { keys: "Enter", action: "형제 노드 추가" },
+      { keys: "Tab", action: "자식 노드 추가" },
+      { keys: "Shift+Tab", action: "부모 다음 형제로 내어쓰기" },
+      { keys: "Esc", action: "선택 모드로 전환" },
+      { keys: "Option/Cmd+ArrowUp", action: "위로 이동" },
+      { keys: "Option/Cmd+ArrowDown", action: "아래로 이동" },
+      { keys: "Option/Cmd+Backspace", action: "노드 삭제" }
+    ]
+  },
+  {
+    title: "선택 모드",
+    shortcuts: [
+      { keys: "ArrowUp/Down", action: "이전/다음 노드 선택" },
+      { keys: "ArrowLeft", action: "부모 노드 선택" },
+      { keys: "ArrowRight", action: "첫 자식 노드 선택" },
+      { keys: "Enter/Space/F2", action: "편집 시작" },
+      { keys: "Tab", action: "이전 형제의 자식으로 들여쓰기" },
+      { keys: "Shift+Tab", action: "부모 다음 형제로 내어쓰기" },
+      { keys: "Backspace/Delete", action: "노드 삭제" },
+      { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
+      { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
+    ]
+  },
+  {
+    title: "문서/보기",
+    shortcuts: [
+      { keys: "Cmd/Ctrl+O", action: "Markdown 파일 열기" },
+      { keys: "Cmd/Ctrl+S", action: "저장" },
+      { keys: "Cmd/Ctrl+Z", action: "Undo" },
+      { keys: "Cmd/Ctrl+Shift+Z", action: "Redo" },
+      { keys: "Cmd/Ctrl+Y", action: "Redo" },
+      { keys: "Cmd/Ctrl++", action: "확대" },
+      { keys: "Cmd/Ctrl+-", action: "축소" },
+      { keys: "Cmd/Ctrl+0", action: "100%" },
+      { keys: "? 또는 Cmd/Ctrl+/", action: "키바인딩 도움말" }
+    ]
+  }
+];
+
 export function App() {
   const [history, setHistory] = useState<HistoryState<DocumentState>>(() =>
     createHistory(createUntitledDocument())
@@ -87,6 +135,7 @@ export function App() {
   );
   const [notice, setNotice] = useState<string | null>(null);
   const [diffFiles, setDiffFiles] = useState<DiffFiles | null>(null);
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 
   const activeDocument = history.present.value;
   const parseResult = useMemo(
@@ -513,6 +562,17 @@ export function App() {
   }, [viewState.editingNodePath]);
 
   useEffect(() => {
+    if (!showKeyboardHelp) {
+      return;
+    }
+
+    const closeButton = globalThis.document?.querySelector<HTMLButtonElement>(
+      "[data-keyboard-help-close]"
+    );
+    closeButton?.focus();
+  }, [showKeyboardHelp]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isImeComposing(event)) {
         return;
@@ -520,7 +580,21 @@ export function App() {
 
       const key = event.key.toLowerCase();
       const editing = viewState.editingNodePath !== null;
-      if ((event.metaKey || event.ctrlKey) && key === "s") {
+      if (showKeyboardHelp) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setShowKeyboardHelp(false);
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+        event.preventDefault();
+        setShowKeyboardHelp(true);
+      } else if (!editing && (event.key === "?" || (event.shiftKey && event.key === "/"))) {
+        event.preventDefault();
+        setShowKeyboardHelp(true);
+      } else if ((event.metaKey || event.ctrlKey) && key === "s") {
         event.preventDefault();
         void handleSave();
       } else if ((event.metaKey || event.ctrlKey) && key === "o") {
@@ -614,6 +688,7 @@ export function App() {
     handleZoomOut,
     mindmap,
     selectNode,
+    showKeyboardHelp,
     viewState.editingNodePath,
     viewState.selectedNodePath
   ]);
@@ -703,6 +778,14 @@ export function App() {
           >
             Paste
           </button>
+          <button
+            type="button"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts"
+            onClick={() => setShowKeyboardHelp(true)}
+          >
+            ?
+          </button>
           {mindmap && (
             <>
               <button
@@ -757,6 +840,10 @@ export function App() {
           </div>
         </div>
       </header>
+
+      {showKeyboardHelp && (
+        <KeyboardHelpModal onClose={() => setShowKeyboardHelp(false)} />
+      )}
 
       {notice && (
         <section className="notice">
@@ -863,6 +950,56 @@ export function App() {
         <Diagnostics diagnostics={parseResult.diagnostics} />
       )}
     </main>
+  );
+}
+
+function KeyboardHelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop">
+      <section
+        className="keyboard-help"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="keyboard-help-title"
+      >
+        <header>
+          <div>
+            <h2 id="keyboard-help-title">키바인딩</h2>
+            <p>현재 구현된 키보드 조작</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close keyboard shortcuts"
+            data-keyboard-help-close
+            onClick={onClose}
+          >
+            x
+          </button>
+        </header>
+        <div className="shortcut-groups">
+          {keyboardShortcutGroups.map((group) => (
+            <section className="shortcut-group" key={group.title}>
+              <h3>{group.title}</h3>
+              <dl>
+                {group.shortcuts.map((shortcut) => (
+                  <div className="shortcut-row" key={`${group.title}-${shortcut.keys}`}>
+                    <dt>
+                      {shortcut.keys.split(" 또는 ").map((key, index) => (
+                        <span key={key}>
+                          {index > 0 && <span className="shortcut-separator">또는</span>}
+                          <kbd>{key}</kbd>
+                        </span>
+                      ))}
+                    </dt>
+                    <dd>{shortcut.action}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 

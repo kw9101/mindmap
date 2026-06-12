@@ -103,6 +103,118 @@ button:disabled:hover {
   min-width: 58px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 24, 31, 0.34);
+}
+
+.keyboard-help {
+  width: min(760px, 100%);
+  max-height: min(780px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 60px rgba(28, 35, 45, 0.24);
+}
+
+.keyboard-help header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #e3e7ed;
+}
+
+.keyboard-help h2,
+.keyboard-help h3,
+.keyboard-help p {
+  margin: 0;
+}
+
+.keyboard-help h2 {
+  font-size: 19px;
+  line-height: 1.25;
+}
+
+.keyboard-help p {
+  margin-top: 4px;
+  color: #5f6b7a;
+  font-size: 13px;
+}
+
+.keyboard-help button[aria-label="Close keyboard shortcuts"] {
+  flex: 0 0 auto;
+}
+
+.shortcut-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 18px 20px 20px;
+}
+
+.shortcut-group h3 {
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.shortcut-group dl {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.shortcut-row {
+  display: grid;
+  gap: 4px;
+}
+
+.shortcut-row dt,
+.shortcut-row dd {
+  margin: 0;
+}
+
+.shortcut-row dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.shortcut-row dd {
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.shortcut-separator {
+  margin: 0 5px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 2px 6px;
+  border: 1px solid #c7ced8;
+  border-bottom-color: #aab3bf;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #202124;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .notice,
 .conflict-panel {
   border-bottom: 1px solid #dfe2e7;
@@ -450,6 +562,25 @@ button:disabled:hover {
   .zoom-controls {
     padding-left: 0;
     border-left: 0;
+  }
+
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .keyboard-help {
+    max-height: calc(100vh - 24px);
+  }
+
+  .keyboard-help header {
+    padding: 14px 14px 12px;
+  }
+
+  .shortcut-groups {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 14px;
   }
 
   .workspace-viewport {

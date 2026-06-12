@@ -59,6 +59,36 @@ test("zoom controls can zoom in and reset", async ({ page }) => {
   await expect(resetZoomButton).toHaveText("100%");
 });
 
+test("keyboard shortcut help opens from the toolbar and closes with Escape", async ({
+  page
+}) => {
+  await page.getByRole("button", { name: "Keyboard shortcuts" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "키바인딩" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("편집 중")).toBeVisible();
+  await expect(dialog.getByText("Cmd/Ctrl+S", { exact: true })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
+test("shortcut help keeps question mark editable and opens from selection mode", async ({
+  page
+}) => {
+  const firstNode = page.locator(".node-input");
+
+  await firstNode.focus();
+  await page.keyboard.type("?");
+  await expect(firstNode).toHaveValue("?");
+  await expect(page.getByRole("dialog", { name: "키바인딩" })).toHaveCount(0);
+
+  await firstNode.press("Escape");
+  await page.keyboard.press("Shift+/");
+
+  await expect(page.getByRole("dialog", { name: "키바인딩" })).toBeVisible();
+});
+
 test("arrow navigation can move between the first node and the root", async ({ page }) => {
   const root = page.getByLabel("Root heading");
   const firstNode = page.locator(".node-input");
