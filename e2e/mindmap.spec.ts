@@ -35,6 +35,39 @@ test("Tab while editing creates a child node instead of indenting under a siblin
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n");
 });
 
+test("a child node is laid out to the right of its parent", async ({ page }) => {
+  const parent = page.locator('.node-input[data-node-path="right/0"]');
+
+  await parent.focus();
+  await parent.press("Tab");
+
+  const child = page.locator('.node-input[data-node-path="right/0/0"]');
+  await expect(child).toBeVisible();
+
+  const relation = await page.evaluate(() => {
+    const parentRect = document
+      .querySelector('.node-input[data-node-path="right/0"]')
+      ?.getBoundingClientRect();
+    const childRect = document
+      .querySelector('.node-input[data-node-path="right/0/0"]')
+      ?.getBoundingClientRect();
+    if (!parentRect || !childRect) {
+      return null;
+    }
+
+    return {
+      gap: Math.round(childRect.left - parentRect.right),
+      verticalCenterDelta: Math.round(
+        childRect.top + childRect.height / 2 - (parentRect.top + parentRect.height / 2)
+      )
+    };
+  });
+
+  expect(relation).not.toBeNull();
+  expect(relation!.gap).toBeGreaterThan(0);
+  expect(Math.abs(relation!.verticalCenterDelta)).toBeLessThanOrEqual(2);
+});
+
 test("IME composing Enter does not create a sibling node", async ({ page }) => {
   const firstNode = page.locator(".node-input");
 
@@ -48,6 +81,17 @@ test("IME composing Enter does not create a sibling node", async ({ page }) => {
 
   await expect(page.locator(".node-input")).toHaveCount(1);
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+});
+
+test("typing a space into an empty node remains valid markdown", async ({ page }) => {
+  const firstNode = page.locator(".node-input");
+
+  await firstNode.focus();
+  await firstNode.press("Space");
+
+  await expect(firstNode).toHaveValue(" ");
+  await expect(page.locator(".diagnostics")).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n-  \n");
 });
 
 test("compact sidebar layout keeps the first right node to the right of the root", async ({
