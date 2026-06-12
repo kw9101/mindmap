@@ -39,6 +39,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 키바인딩 도움말
 - Markdown subtree 클립보드 복사/붙여넣기
 - 캔버스 드래그 pan과 SQLite view state 저장
+- 마우스 드래그 기반 노드 재배치
 - 기능별 unit test
 - Playwright 기반 e2e user-flow test
 
@@ -89,7 +90,8 @@ pnpm tauri dev
 - 편집 중 `Shift+Tab`: 부모 노드로 포커스 이동
 - 텍스트와 자식이 모두 없는 빈 노드는 포커스를 잃으면 자동 삭제
 - 마우스 클릭: 노드 선택
-- 선택 모드 `Enter`: 선택 노드 편집
+- 선택된 노드 다시 클릭 또는 선택 모드 `Enter`: 선택 노드 편집
+- 노드 드래그: 대상 노드의 위/아래/가운데로 끌어 앞 형제/뒤 형제/자식으로 재배치
 - `Option+ArrowUp` 또는 `Cmd+ArrowUp`: 형제 순서에서 위로 이동
 - `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제

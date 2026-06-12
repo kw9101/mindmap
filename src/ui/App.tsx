@@ -34,6 +34,7 @@ import {
   undoHistory,
   type HistoryState
 } from "../core/history";
+import type { Diagnostic } from "../core/diagnostics";
 import type { Direction, Mindmap, MindmapNode } from "../core/model";
 import { parseClipboardNodes, serializeNodeForClipboard } from "../core/clipboard";
 import { parseMindmap } from "../core/parser";
@@ -48,6 +49,7 @@ import {
   firstNodePath,
   insertSiblingNodes,
   isRootNodePath,
+  moveNodeTo,
   moveNodeDown,
   moveNodeUp,
   nextSiblingNodePath,
@@ -55,6 +57,7 @@ import {
   previousNodePath,
   previousSiblingNodePath,
   rootNodePath,
+  type NodeMovePosition,
   updateNodeText,
   updateRootTitle
 } from "../core/tree";
@@ -90,6 +93,9 @@ import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
 const autosaveDelayMs = 700;
 const externalPollMs = 2500;
+const nodeDragStartThresholdPx = 6;
+const nodeDropSnapDistancePx = 96;
+const clickMoveTolerancePx = 4;
 
 type ConnectorPath = {
   id: string;
@@ -107,6 +113,41 @@ type FocusedNodeTarget = {
 };
 
 type SpatialDirection = "up" | "down" | "left" | "right";
+
+type NodeDropTarget = {
+  sourcePath: string;
+  targetPath: string;
+  position: NodeMovePosition;
+  rootDirection?: Direction;
+};
+
+type NodeDragSession = {
+  pointerId: number;
+  sourcePath: string;
+  startX: number;
+  startY: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
+  previewText: string;
+  previewWidth: number;
+  previewHeight: number;
+  active: boolean;
+};
+
+type NodeDragPreview = {
+  sourcePath: string;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  minHeight: number;
+};
+
+type NodeDragSnapLine = {
+  d: string;
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+};
 
 const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
   {
@@ -144,6 +185,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Cmd/Ctrl++", action: "확대" },
       { keys: "Cmd/Ctrl+-", action: "축소" },
       { keys: "Cmd/Ctrl+0", action: "100%" },
+      { keys: "노드 드래그", action: "노드 재배치" },
       { keys: "마우스 휠", action: "확대/축소" },
       { keys: "? 또는 Cmd/Ctrl+/", action: "키바인딩 도움말" }
     ]
@@ -161,6 +203,14 @@ export function App() {
   const [diffFiles, setDiffFiles] = useState<DiffFiles | null>(null);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const [isNodeDragging, setIsNodeDragging] = useState(false);
+  const [nodeDropTarget, setNodeDropTarget] = useState<NodeDropTarget | null>(null);
+  const [nodeDragPreview, setNodeDragPreview] = useState<NodeDragPreview | null>(
+    null
+  );
+  const [nodeDragSnapLine, setNodeDragSnapLine] = useState<NodeDragSnapLine | null>(
+    null
+  );
   const [connectorPaths, setConnectorPaths] = useState<ConnectorPath[]>([]);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const panDragRef = useRef<{
@@ -169,6 +219,7 @@ export function App() {
     startY: number;
     pan: MindmapViewState["pan"];
   } | null>(null);
+  const nodeDragRef = useRef<NodeDragSession | null>(null);
 
   const activeDocument = history.present.value;
   const parseResult = useMemo(
@@ -192,7 +243,13 @@ export function App() {
     (source: string, label: string) => {
       const nextResult = parseMindmap(source);
       if (!nextResult.ok) {
-        setNotice(`내부 편집 결과가 파싱되지 않았습니다: ${nextResult.diagnostics[0].code}`);
+        setNotice(
+          formatParseFailureNotice(
+            "내부 편집 결과를 Markdown으로 적용하지 못했습니다.",
+            nextResult.diagnostics,
+            source
+          )
+        );
         return;
       }
 
@@ -253,7 +310,13 @@ export function App() {
       const sourceToSave = activeDocument.source;
       const validation = parseMindmap(sourceToSave);
       if (!validation.ok) {
-        setNotice(`저장 전에 Markdown 파싱이 실패했습니다: ${validation.diagnostics[0].code}`);
+        setNotice(
+          formatParseFailureNotice(
+            "저장 전에 Markdown 검증이 실패했습니다.",
+            validation.diagnostics,
+            sourceToSave
+          )
+        );
         return;
       }
 
@@ -436,6 +499,150 @@ export function App() {
     }
   }, []);
 
+  const clearNodeDrag = useCallback(() => {
+    nodeDragRef.current = null;
+    setIsNodeDragging(false);
+    setNodeDropTarget(null);
+    setNodeDragPreview(null);
+    setNodeDragSnapLine(null);
+  }, []);
+
+  const handleNodeDragPointerDown = useCallback(
+    (path: string, event: PointerEvent<HTMLTextAreaElement>) => {
+      if (
+        event.button !== 0 ||
+        isRootNodePath(path) ||
+        viewState.editingNodePath === path
+      ) {
+        return;
+      }
+
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const rect = event.currentTarget.getBoundingClientRect();
+      nodeDragRef.current = {
+        pointerId: event.pointerId,
+        sourcePath: path,
+        startX: event.clientX,
+        startY: event.clientY,
+        pointerOffsetX: event.clientX - rect.left,
+        pointerOffsetY: event.clientY - rect.top,
+        previewText: event.currentTarget.value,
+        previewWidth: rect.width,
+        previewHeight: rect.height,
+        active: false
+      };
+      setNodeDropTarget(null);
+      setNodeDragPreview(null);
+      setNodeDragSnapLine(null);
+      setIsNodeDragging(false);
+    },
+    [viewState.editingNodePath]
+  );
+
+  const handleNodeDragPointerMove = useCallback(
+    (path: string, event: PointerEvent<HTMLTextAreaElement>) => {
+      const drag = nodeDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId || drag.sourcePath !== path) {
+        return;
+      }
+
+      const deltaX = event.clientX - drag.startX;
+      const deltaY = event.clientY - drag.startY;
+      if (!drag.active && Math.hypot(deltaX, deltaY) < nodeDragStartThresholdPx) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (!drag.active) {
+        drag.active = true;
+        setIsNodeDragging(true);
+        selectNode(drag.sourcePath, false);
+      }
+
+      const preview: NodeDragPreview = {
+        sourcePath: drag.sourcePath,
+        text: drag.previewText,
+        x: event.clientX - drag.pointerOffsetX,
+        y: event.clientY - drag.pointerOffsetY,
+        width: drag.previewWidth,
+        minHeight: drag.previewHeight
+      };
+      const dropTarget = nodeDropTargetFromPointer(
+        workspaceRef.current,
+        drag.sourcePath,
+        event.clientX,
+        event.clientY
+      );
+
+      setNodeDragPreview(preview);
+      setNodeDropTarget(dropTarget);
+      setNodeDragSnapLine(
+        dropTarget
+          ? createNodeDragSnapLine(workspaceRef.current, dropTarget, preview)
+          : null
+      );
+    },
+    [selectNode]
+  );
+
+  const handleNodeDragPointerUp = useCallback(
+    (path: string, event: PointerEvent<HTMLTextAreaElement>) => {
+      const drag = nodeDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId || drag.sourcePath !== path) {
+        return;
+      }
+
+      event.stopPropagation();
+      const wasActive = drag.active;
+      const target =
+        nodeDropTarget ??
+        nodeDropTargetFromPointer(
+          workspaceRef.current,
+          drag.sourcePath,
+          event.clientX,
+          event.clientY
+        );
+
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      clearNodeDrag();
+
+      if (!wasActive || !target || !mindmap) {
+        return;
+      }
+
+      const result = moveNodeTo(
+        mindmap,
+        drag.sourcePath,
+        target.targetPath,
+        target.position,
+        target.rootDirection
+      );
+      if (result) {
+        commitMindmap(result.mindmap, "Move node", result.movedPath, false);
+      }
+    },
+    [clearNodeDrag, commitMindmap, mindmap, nodeDropTarget]
+  );
+
+  const handleNodeDragPointerCancel = useCallback(
+    (path: string, event: PointerEvent<HTMLTextAreaElement>) => {
+      const drag = nodeDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId || drag.sourcePath !== path) {
+        return;
+      }
+
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      clearNodeDrag();
+    },
+    [clearNodeDrag]
+  );
+
   const handleCopySubtree = useCallback(async () => {
     if (!mindmap || !selectedDocumentNode) {
       return;
@@ -458,7 +665,13 @@ export function App() {
       const text = await navigator.clipboard.readText();
       const parsed = parseClipboardNodes(text, selectedDocumentNode.direction);
       if (!parsed.ok) {
-        setNotice(`붙여넣기 Markdown을 읽을 수 없습니다: ${parsed.diagnostics[0].code}`);
+        setNotice(
+          formatParseFailureNotice(
+            "붙여넣기 Markdown을 읽을 수 없습니다.",
+            parsed.diagnostics,
+            text
+          )
+        );
         return;
       }
 
@@ -828,6 +1041,8 @@ export function App() {
     "--workspace-pan-y": `${viewState.pan.y}px`
   } as CSSProperties;
   const rootEditing = viewState.editingNodePath === rootNodePath;
+  const rootDropTarget =
+    nodeDropTarget?.targetPath === rootNodePath ? nodeDropTarget : null;
   const renderNodeEditor = (node: MindmapNode, side: Direction) => (
     <NodeEditor
       key={node.path}
@@ -835,6 +1050,8 @@ export function App() {
       side={side}
       selectedPath={viewState.selectedNodePath}
       editingPath={viewState.editingNodePath}
+      dragSourcePath={isNodeDragging ? nodeDragRef.current?.sourcePath ?? null : null}
+      dropTarget={nodeDropTarget}
       onSelect={(path, editing) => selectNode(path, editing)}
       onExitEditing={exitEditingIfCurrent}
       onTextChange={(path, text) => {
@@ -903,6 +1120,10 @@ export function App() {
         const next = moveNodeDown(mindmap!, path);
         commitMindmap(next, "Move node down", remapPathAfterTextMatch(next, path));
       }}
+      onDragPointerDown={handleNodeDragPointerDown}
+      onDragPointerMove={handleNodeDragPointerMove}
+      onDragPointerUp={handleNodeDragPointerUp}
+      onDragPointerCancel={handleNodeDragPointerCancel}
     />
   );
 
@@ -1063,7 +1284,9 @@ export function App() {
       {parseResult.ok ? (
         <>
           <section
-            className={`workspace-viewport${isPanning ? " is-panning" : ""}`}
+            className={`workspace-viewport${isPanning ? " is-panning" : ""}${
+              isNodeDragging ? " is-node-dragging" : ""
+            }`}
             aria-label="Mindmap canvas"
             onPointerDown={handleViewportPointerDown}
             onPointerMove={handleViewportPointerMove}
@@ -1093,7 +1316,11 @@ export function App() {
 
               <section className="root-node" aria-label="Root node">
                 <NodeTextArea
-                  className={viewState.selectedNodePath === rootNodePath ? "selected" : ""}
+                  className={classNames(
+                    viewState.selectedNodePath === rootNodePath && "selected",
+                    rootDropTarget && `drop-${rootDropTarget.position}`,
+                    rootDropTarget?.rootDirection && `drop-${rootDropTarget.rootDirection}`
+                  )}
                   path={rootNodePath}
                   value={mindmap!.title}
                   width={getRootInputWidth(mindmap!.title)}
@@ -1106,8 +1333,16 @@ export function App() {
                     commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
                   }
                   onBlur={() => exitEditingIfCurrent(rootNodePath)}
+                  onDragPointerDown={undefined}
+                  onDragPointerMove={undefined}
+                  onDragPointerUp={undefined}
+                  onDragPointerCancel={undefined}
                   onKeyDown={(event) => {
                     if (!rootEditing) {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        selectNode(rootNodePath, true);
+                      }
                       return;
                     }
 
@@ -1143,6 +1378,40 @@ export function App() {
           <section className="markdown-panel" aria-label="Markdown output">
             <pre>{activeDocument.source}</pre>
           </section>
+
+          {nodeDragSnapLine && (
+            <svg className="node-drag-snap-layer" aria-hidden="true">
+              <path className="node-drag-snap-line" d={nodeDragSnapLine.d} />
+              <circle
+                className="node-drag-snap-dot"
+                cx={nodeDragSnapLine.start.x}
+                cy={nodeDragSnapLine.start.y}
+                r="4"
+              />
+              <circle
+                className="node-drag-snap-dot"
+                cx={nodeDragSnapLine.end.x}
+                cy={nodeDragSnapLine.end.y}
+                r="4"
+              />
+            </svg>
+          )}
+
+          {nodeDragPreview && (
+            <div
+              className="node-drag-preview"
+              aria-hidden="true"
+              data-drag-preview-path={nodeDragPreview.sourcePath}
+              style={{
+                left: nodeDragPreview.x,
+                top: nodeDragPreview.y,
+                width: nodeDragPreview.width,
+                minHeight: nodeDragPreview.minHeight
+              }}
+            >
+              {nodeDragPreview.text || "\u00a0"}
+            </div>
+          )}
         </>
       ) : (
         <Diagnostics diagnostics={parseResult.diagnostics} />
@@ -1213,6 +1482,10 @@ function NodeTextArea({
   onEditClick,
   onChange,
   onBlur,
+  onDragPointerDown,
+  onDragPointerMove,
+  onDragPointerUp,
+  onDragPointerCancel,
   onKeyDown
 }: {
   className: string;
@@ -1226,10 +1499,20 @@ function NodeTextArea({
   onEditClick: () => void;
   onChange: (text: string) => void;
   onBlur: (nextFocusedNode: FocusedNodeTarget | null) => void;
+  onDragPointerDown?: (event: PointerEvent<HTMLTextAreaElement>) => void;
+  onDragPointerMove?: (event: PointerEvent<HTMLTextAreaElement>) => void;
+  onDragPointerUp?: (event: PointerEvent<HTMLTextAreaElement>) => void;
+  onDragPointerCancel?: (event: PointerEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const editOnClickRef = useRef(false);
+  const pointerStartRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
 
   useLayoutEffect(() => {
     const textArea = textAreaRef.current;
@@ -1252,10 +1535,46 @@ function NodeTextArea({
       style={{ width }}
       aria-label={ariaLabel}
       readOnly={readOnly}
+      onPointerDown={(event) => {
+        pointerStartRef.current = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY
+        };
+        suppressClickRef.current = false;
+        onDragPointerDown?.(event);
+      }}
+      onPointerMove={(event) => {
+        const pointerStart = pointerStartRef.current;
+        if (pointerStart?.pointerId === event.pointerId) {
+          const deltaX = event.clientX - pointerStart.x;
+          const deltaY = event.clientY - pointerStart.y;
+          if (Math.hypot(deltaX, deltaY) > clickMoveTolerancePx) {
+            suppressClickRef.current = true;
+          }
+        }
+
+        onDragPointerMove?.(event);
+      }}
+      onPointerUp={(event) => {
+        onDragPointerUp?.(event);
+        pointerStartRef.current = null;
+      }}
+      onPointerCancel={(event) => {
+        onDragPointerCancel?.(event);
+        pointerStartRef.current = null;
+        suppressClickRef.current = true;
+      }}
       onMouseDown={() => {
         editOnClickRef.current = editOnClick;
       }}
       onClick={() => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          editOnClickRef.current = false;
+          return;
+        }
+
         if (editOnClickRef.current) {
           onEditClick();
         }
@@ -1274,6 +1593,8 @@ function NodeEditor({
   side,
   selectedPath,
   editingPath,
+  dragSourcePath,
+  dropTarget,
   onSelect,
   onExitEditing,
   onTextChange,
@@ -1284,12 +1605,18 @@ function NodeEditor({
   onFocusPrevious,
   onFocusParent,
   onMoveUp,
-  onMoveDown
+  onMoveDown,
+  onDragPointerDown,
+  onDragPointerMove,
+  onDragPointerUp,
+  onDragPointerCancel
 }: {
   node: MindmapNode;
   side: Direction;
   selectedPath: string;
   editingPath: string | null;
+  dragSourcePath: string | null;
+  dropTarget: NodeDropTarget | null;
   onSelect: (path: string, editing: boolean) => void;
   onExitEditing: (path: string) => void;
   onTextChange: (path: string, text: string) => void;
@@ -1301,6 +1628,19 @@ function NodeEditor({
   onFocusParent: (path: string) => void;
   onMoveUp: (path: string) => void;
   onMoveDown: (path: string) => void;
+  onDragPointerDown: (
+    path: string,
+    event: PointerEvent<HTMLTextAreaElement>
+  ) => void;
+  onDragPointerMove: (
+    path: string,
+    event: PointerEvent<HTMLTextAreaElement>
+  ) => void;
+  onDragPointerUp: (path: string, event: PointerEvent<HTMLTextAreaElement>) => void;
+  onDragPointerCancel: (
+    path: string,
+    event: PointerEvent<HTMLTextAreaElement>
+  ) => void;
 }) {
   const children =
     node.children.length > 0 ? (
@@ -1312,6 +1652,8 @@ function NodeEditor({
             side={side}
             selectedPath={selectedPath}
             editingPath={editingPath}
+            dragSourcePath={dragSourcePath}
+            dropTarget={dropTarget}
             onSelect={onSelect}
             onExitEditing={onExitEditing}
             onTextChange={onTextChange}
@@ -1323,6 +1665,10 @@ function NodeEditor({
             onFocusParent={onFocusParent}
             onMoveUp={onMoveUp}
             onMoveDown={onMoveDown}
+            onDragPointerDown={onDragPointerDown}
+            onDragPointerMove={onDragPointerMove}
+            onDragPointerUp={onDragPointerUp}
+            onDragPointerCancel={onDragPointerCancel}
           />
         ))}
       </div>
@@ -1336,7 +1682,13 @@ function NodeEditor({
       {side === "left" && children}
       <div className="node-row">
         <NodeTextArea
-          className={`node-input${selected ? " selected" : ""}`}
+          className={classNames(
+            "node-input",
+            selected && "selected",
+            !editing && "draggable-node",
+            dragSourcePath === node.path && "drag-source",
+            dropTarget?.targetPath === node.path && `drop-${dropTarget.position}`
+          )}
           path={node.path}
           value={node.text}
           width={getNodeInputWidth(node.text)}
@@ -1355,6 +1707,10 @@ function NodeEditor({
               onExitEditing(node.path);
             }
           }}
+          onDragPointerDown={(event) => onDragPointerDown(node.path, event)}
+          onDragPointerMove={(event) => onDragPointerMove(node.path, event)}
+          onDragPointerUp={(event) => onDragPointerUp(node.path, event)}
+          onDragPointerCancel={(event) => onDragPointerCancel(node.path, event)}
           onKeyDown={(event) => {
             if (!editing) {
               return;
@@ -1396,6 +1752,10 @@ function toSingleLineNodeText(text: string): string {
   return text.replace(/\r\n|\r|\n/g, " ");
 }
 
+function classNames(...parts: Array<string | false | null | undefined>): string {
+  return parts.filter(Boolean).join(" ");
+}
+
 function nodeTargetFromRelatedTarget(
   event: ReactFocusEvent<HTMLElement>
 ): FocusedNodeTarget | null {
@@ -1414,6 +1774,120 @@ function nodeTargetFromRelatedTarget(
     path,
     editing: target instanceof HTMLTextAreaElement && !target.readOnly
   };
+}
+
+function formatParseFailureNotice(
+  title: string,
+  diagnostics: Diagnostic[],
+  source?: string
+): string {
+  const diagnostic = diagnostics[0];
+  const lines = [
+    title,
+    "",
+    `${diagnostic.code}: ${diagnosticSummary(diagnostic)}`,
+    `위치: ${diagnostic.line}행 ${diagnostic.column}열`
+  ];
+  const sourceLine = sourceLineForDiagnostic(source, diagnostic.line);
+  if (sourceLine !== null) {
+    lines.push(`문제 줄: ${showWhitespace(sourceLine)}`);
+  }
+
+  const detail = diagnosticDetail(diagnostic);
+  lines.push("", `원인: ${detail.reason}`);
+  if (detail.note) {
+    lines.push(`참고: ${detail.note}`);
+  }
+
+  lines.push("", "예시:", `잘못된 예: ${detail.badExample}`, `올바른 예: ${detail.goodExample}`);
+
+  if (diagnostic.help && diagnostic.code !== "MM018") {
+    lines.push("", `도움말: ${diagnostic.help}`);
+  }
+
+  return lines.join("\n");
+}
+
+function diagnosticSummary(diagnostic: Diagnostic): string {
+  if (diagnostic.code === "MM018") {
+    return "Markdown 줄 끝 또는 파일 끝 형식이 canonical 포맷과 맞지 않습니다.";
+  }
+
+  return diagnostic.message;
+}
+
+function diagnosticDetail(diagnostic: Diagnostic): {
+  reason: string;
+  badExample: string;
+  goodExample: string;
+  note?: string;
+} {
+  if (diagnostic.code !== "MM018") {
+    return {
+      reason: diagnostic.message,
+      badExample: "지원하지 않는 Markdown 구조",
+      goodExample: "# 제목\\n\\n- 노드"
+    };
+  }
+
+  if (diagnostic.message.includes("CRLF")) {
+    return {
+      reason: "파일 줄바꿈이 Windows식 CRLF입니다. 이 앱의 Markdown 포맷은 LF 줄바꿈만 허용합니다.",
+      badExample: "각 줄 끝이 CRLF",
+      goodExample: "각 줄 끝이 LF"
+    };
+  }
+
+  if (diagnostic.message.includes("exactly one trailing newline")) {
+    return {
+      reason: "파일 마지막에는 개행이 정확히 1개 있어야 합니다.",
+      badExample: "# 제목\\n\\n- 노드",
+      goodExample: "# 제목\\n\\n- 노드\\n"
+    };
+  }
+
+  if (diagnostic.message.includes("extra blank lines")) {
+    return {
+      reason: "파일 끝에 빈 줄이 2개 이상 붙어 있습니다.",
+      badExample: "# 제목\\n\\n- 노드\\n\\n",
+      goodExample: "# 제목\\n\\n- 노드\\n"
+    };
+  }
+
+  if (diagnostic.message.includes("Empty list items")) {
+    return {
+      reason: "빈 노드는 marker 뒤 공백 없이 '-'만 써야 합니다.",
+      badExample: "- ",
+      goodExample: "-",
+      note: "텍스트가 있는 노드의 끝 공백은 노드 텍스트로 보존되지만, 완전히 빈 노드는 '-' 형식만 허용합니다."
+    };
+  }
+
+  return {
+    reason: "제목, 방향 섹션, 빈 줄 같은 구조 줄 끝에 공백이나 탭이 있습니다.",
+    badExample: "# 제목␠",
+    goodExample: "# 제목",
+    note: "단어 사이 공백은 괜찮지만 제목 맨 끝 공백은 Markdown heading 줄 끝 공백이 되어 허용하지 않습니다."
+  };
+}
+
+function sourceLineForDiagnostic(source: string | undefined, line: number): string | null {
+  if (!source || line < 1) {
+    return null;
+  }
+
+  return source.split("\n")[line - 1] ?? null;
+}
+
+function showWhitespace(line: string): string {
+  if (line.length === 0) {
+    return "빈 줄";
+  }
+
+  return line
+    .replace(/\t/g, "⇥")
+    .replace(/\r/g, "␍")
+    .replace(/ /g, "␠");
 }
 
 function Diagnostics({
@@ -1642,6 +2116,194 @@ function spatialDirectionForKey(key: string): SpatialDirection | null {
   }
 
   return null;
+}
+
+function nodeDropTargetFromPointer(
+  workspace: HTMLElement | null,
+  sourcePath: string,
+  clientX: number,
+  clientY: number
+): NodeDropTarget | null {
+  if (!workspace || !globalThis.document) {
+    return null;
+  }
+
+  const seenPaths = new Set<string>();
+  for (const element of globalThis.document.elementsFromPoint(clientX, clientY)) {
+    const directTarget = nodeDropTargetForElement(
+      workspace,
+      sourcePath,
+      element.closest<HTMLElement>("[data-node-path]"),
+      clientX,
+      clientY
+    );
+    if (!directTarget || seenPaths.has(directTarget.targetPath)) {
+      continue;
+    }
+
+    seenPaths.add(directTarget.targetPath);
+    return directTarget;
+  }
+
+  return nearestNodeDropTarget(workspace, sourcePath, clientX, clientY);
+}
+
+function nearestNodeDropTarget(
+  workspace: HTMLElement,
+  sourcePath: string,
+  clientX: number,
+  clientY: number
+): NodeDropTarget | null {
+  let bestTarget: { target: NodeDropTarget; score: number } | null = null;
+
+  for (const element of workspace.querySelectorAll<HTMLElement>("[data-node-path]")) {
+    const target = nodeDropTargetForElement(
+      workspace,
+      sourcePath,
+      element,
+      clientX,
+      clientY
+    );
+    if (!target) {
+      continue;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const distance = distanceToRect(rect, clientX, clientY);
+    if (distance > nodeDropSnapDistancePx) {
+      continue;
+    }
+
+    const verticalBias = Math.abs(clientY - (rect.top + rect.height / 2)) * 0.12;
+    const score = distance + verticalBias;
+    if (!bestTarget || score < bestTarget.score) {
+      bestTarget = { target, score };
+    }
+  }
+
+  return bestTarget?.target ?? null;
+}
+
+function nodeDropTargetForElement(
+  workspace: HTMLElement,
+  sourcePath: string,
+  element: HTMLElement | null,
+  clientX: number,
+  clientY: number
+): NodeDropTarget | null {
+  const targetPath = element?.dataset.nodePath;
+  if (
+    !element ||
+    !targetPath ||
+    targetPath === sourcePath ||
+    targetPath.startsWith(`${sourcePath}/`) ||
+    !workspace.contains(element)
+  ) {
+    return null;
+  }
+
+  if (isRootNodePath(targetPath)) {
+    const rect = element.getBoundingClientRect();
+    return {
+      sourcePath,
+      targetPath,
+      position: "inside",
+      rootDirection: clientX < rect.left + rect.width / 2 ? "left" : "right"
+    };
+  }
+
+  return {
+    sourcePath,
+    targetPath,
+    position: nodeDropPosition(element.getBoundingClientRect(), clientY)
+  };
+}
+
+function distanceToRect(rect: DOMRect, x: number, y: number): number {
+  const dx = Math.max(rect.left - x, 0, x - rect.right);
+  const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+  return Math.hypot(dx, dy);
+}
+
+function nodeDropPosition(rect: DOMRect, clientY: number): NodeMovePosition {
+  const localY = clientY - rect.top;
+  const beforeLimit = rect.height * 0.3;
+  const afterLimit = rect.height * 0.7;
+
+  if (localY < beforeLimit) {
+    return "before";
+  }
+
+  if (localY > afterLimit) {
+    return "after";
+  }
+
+  return "inside";
+}
+
+function createNodeDragSnapLine(
+  workspace: HTMLElement | null,
+  target: NodeDropTarget,
+  preview: NodeDragPreview
+): NodeDragSnapLine | null {
+  if (!workspace) {
+    return null;
+  }
+
+  const targetElement = nodeElement(workspace, target.targetPath);
+  if (!targetElement) {
+    return null;
+  }
+
+  const targetRect = targetElement.getBoundingClientRect();
+  const previewRect = {
+    left: preview.x,
+    right: preview.x + preview.width,
+    top: preview.y,
+    bottom: preview.y + preview.minHeight,
+    centerX: preview.x + preview.width / 2,
+    centerY: preview.y + preview.minHeight / 2
+  };
+
+  if (target.position === "inside") {
+    const direction = target.rootDirection ?? nodeSide(target.targetPath) ?? "right";
+    const start =
+      direction === "right"
+        ? { x: targetRect.right, y: targetRect.top + targetRect.height / 2 }
+        : { x: targetRect.left, y: targetRect.top + targetRect.height / 2 };
+    const end =
+      direction === "right"
+        ? { x: previewRect.left, y: previewRect.centerY }
+        : { x: previewRect.right, y: previewRect.centerY };
+    return { d: fixedCurvePath(start, end, direction), start, end };
+  }
+
+  const startY = target.position === "before" ? targetRect.top : targetRect.bottom;
+  const start = { x: targetRect.left + targetRect.width / 2, y: startY };
+  const end = { x: previewRect.centerX, y: previewRect.centerY };
+  return {
+    d: fixedCurvePath(start, end, start.x <= end.x ? "right" : "left"),
+    start,
+    end
+  };
+}
+
+function fixedCurvePath(
+  start: Point,
+  end: Point,
+  direction: Direction
+): string {
+  const distance = Math.max(Math.abs(end.x - start.x), 36);
+  const handle = Math.min(120, Math.max(28, distance * 0.45));
+  const startControlX = start.x + (direction === "right" ? handle : -handle);
+  const endControlX = end.x + (direction === "right" ? -handle : handle);
+
+  return [
+    `M ${roundPathNumber(start.x)} ${roundPathNumber(start.y)}`,
+    `C ${roundPathNumber(startControlX)} ${roundPathNumber(start.y)}`,
+    `${roundPathNumber(endControlX)} ${roundPathNumber(end.y)}`,
+    `${roundPathNumber(end.x)} ${roundPathNumber(end.y)}`
+  ].join(" ");
 }
 
 function spatialNodePath(

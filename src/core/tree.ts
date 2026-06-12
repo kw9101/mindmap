@@ -9,6 +9,13 @@ export type NodeLocation = {
   index: number;
 };
 
+export type NodeMovePosition = "before" | "after" | "inside";
+
+export type MoveNodeResult = {
+  mindmap: Mindmap;
+  movedPath: string;
+};
+
 export function createInitialMindmap(): Mindmap {
   return normalizeMindmap({
     title: "",
@@ -154,6 +161,65 @@ export function moveNodeDown(mindmap: Mindmap, path: string): Mindmap {
 
   swap(location.siblings, location.index, location.index + 1);
   return normalizeMindmap(next);
+}
+
+export function moveNodeTo(
+  mindmap: Mindmap,
+  sourcePath: string,
+  targetPath: string,
+  position: NodeMovePosition,
+  rootDirection?: Direction
+): MoveNodeResult | null {
+  if (
+    isRootNodePath(sourcePath) ||
+    sourcePath === targetPath ||
+    targetPath.startsWith(`${sourcePath}/`)
+  ) {
+    return null;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const sourceLocation = findNodeLocation(next, sourcePath);
+  if (!sourceLocation) {
+    return null;
+  }
+
+  const [movingNode] = sourceLocation.siblings.splice(sourceLocation.index, 1);
+
+  if (isRootNodePath(targetPath)) {
+    if (!rootDirection) {
+      return null;
+    }
+
+    setSubtreeDirection(movingNode, rootDirection);
+    next.children.push(movingNode);
+    if (rootDirection === "left" || next.usesDirectionSections) {
+      next.usesDirectionSections = true;
+      next.sectionOrder = ensureDirectionOrder(next.sectionOrder, rootDirection);
+      if (!next.sectionOrder.includes("right")) {
+        next.sectionOrder = ["right", ...next.sectionOrder];
+      }
+    }
+
+    const movedPath = pathForNode(next, movingNode);
+    return movedPath ? { mindmap: normalizeMindmap(next), movedPath } : null;
+  }
+
+  const targetLocation = findNodeLocation(next, targetPath);
+  if (!targetLocation) {
+    return null;
+  }
+
+  setSubtreeDirection(movingNode, targetLocation.node.direction);
+  if (position === "inside") {
+    targetLocation.node.children.push(movingNode);
+  } else {
+    const insertIndex = targetLocation.index + (position === "after" ? 1 : 0);
+    targetLocation.siblings.splice(insertIndex, 0, movingNode);
+  }
+
+  const movedPath = pathForNode(next, movingNode);
+  return movedPath ? { mindmap: normalizeMindmap(next), movedPath } : null;
 }
 
 export function insertSiblingNodes(
@@ -353,6 +419,41 @@ function setSubtreeDirection(node: MindmapNode, direction: Direction): void {
   for (const child of node.children) {
     setSubtreeDirection(child, direction);
   }
+}
+
+function pathForNode(mindmap: Mindmap, target: MindmapNode): string | null {
+  const rootIndexes: Record<Direction, number> = { right: 0, left: 0 };
+
+  for (const child of mindmap.children) {
+    const rootIndex = rootIndexes[child.direction];
+    const path = pathForNodeRecursive(child, target, `${child.direction}/${rootIndex}`);
+    if (path) {
+      return path;
+    }
+
+    rootIndexes[child.direction] += 1;
+  }
+
+  return null;
+}
+
+function pathForNodeRecursive(
+  node: MindmapNode,
+  target: MindmapNode,
+  path: string
+): string | null {
+  if (node === target) {
+    return path;
+  }
+
+  for (let index = 0; index < node.children.length; index += 1) {
+    const childPath = pathForNodeRecursive(node.children[index], target, `${path}/${index}`);
+    if (childPath) {
+      return childPath;
+    }
+  }
+
+  return null;
 }
 
 function cloneWithDirection(node: MindmapNode, direction: Direction): MindmapNode {

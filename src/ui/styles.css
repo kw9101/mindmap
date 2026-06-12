@@ -222,7 +222,7 @@ kbd {
   background: #fffdf6;
   padding: 10px 16px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
@@ -232,8 +232,11 @@ kbd {
   color: #4b5563;
 }
 
+.notice span {
+  white-space: pre-wrap;
+}
+
 .conflict-panel {
-  align-items: flex-start;
   background: #fff8f7;
   color: #842029;
 }
@@ -272,6 +275,11 @@ kbd {
 }
 
 .workspace-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.workspace-viewport.is-node-dragging {
   cursor: grabbing;
   user-select: none;
 }
@@ -365,6 +373,99 @@ kbd {
 .node-input[readonly] {
   cursor: default;
   caret-color: transparent;
+}
+
+.node-input.draggable-node[readonly] {
+  cursor: grab;
+}
+
+.node-input.drag-source {
+  opacity: 0.72;
+  cursor: grabbing;
+}
+
+.node-drag-snap-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.node-drag-snap-line {
+  fill: none;
+  stroke: #2463eb;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 7 6;
+}
+
+.node-drag-snap-dot {
+  fill: #2463eb;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.node-drag-preview {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  border: 1px solid #2463eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow:
+    0 14px 32px rgba(31, 41, 55, 0.2),
+    0 0 0 3px #dbeafe;
+  color: #202124;
+  padding: 9px 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  opacity: 0.96;
+}
+
+.root-node textarea.drop-before,
+.root-node textarea.drop-after,
+.root-node textarea.drop-inside,
+.node-input.drop-before,
+.node-input.drop-after,
+.node-input.drop-inside {
+  border-color: #2463eb;
+}
+
+.root-node textarea.drop-before,
+.node-input.drop-before {
+  box-shadow:
+    0 -4px 0 #2463eb,
+    0 0 0 3px #dbeafe;
+}
+
+.root-node textarea.drop-after,
+.node-input.drop-after {
+  box-shadow:
+    0 4px 0 #2463eb,
+    0 0 0 3px #dbeafe;
+}
+
+.root-node textarea.drop-inside,
+.node-input.drop-inside {
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px #bfdbfe;
+}
+
+.root-node textarea.drop-left {
+  box-shadow:
+    -4px 0 0 #2463eb,
+    0 0 0 3px #bfdbfe;
+}
+
+.root-node textarea.drop-right {
+  box-shadow:
+    4px 0 0 #2463eb,
+    0 0 0 3px #bfdbfe;
 }
 
 .root-node textarea {

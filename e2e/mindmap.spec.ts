@@ -27,6 +27,36 @@ test("editing the root and first node updates markdown", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("# Project\n\n- Idea\n");
 });
 
+test("focused root Enter starts title editing", async ({ page }) => {
+  const root = page.getByLabel("Root heading");
+
+  await root.click();
+  await expect(root).toBeFocused();
+  await expect(root).toHaveAttribute("readonly", "");
+
+  await root.press("Enter");
+
+  await expect(root).not.toHaveAttribute("readonly", "");
+  await root.fill("Title");
+  await expect(markdownOutput(page)).toHaveText("# Title\n\n-\n");
+});
+
+test("MM018 notice explains root title trailing spaces", async ({ page }) => {
+  const root = page.getByLabel("Root heading");
+
+  await root.click();
+  await root.press("Enter");
+  await root.type("Title ");
+
+  const notice = page.locator(".notice");
+  await expect(notice).toContainText("MM018");
+  await expect(notice).toContainText("Markdown 줄 끝 또는 파일 끝 형식");
+  await expect(notice).toContainText("문제 줄:");
+  await expect(notice).toContainText("제목 맨 끝 공백");
+  await expect(notice).toContainText("잘못된 예:");
+  await expect(notice).toContainText("올바른 예:");
+});
+
 test("Enter creates a sibling node and undo redo restores it", async ({ page }) => {
   const firstNode = nodeInput(page, "right/0");
 
@@ -224,6 +254,122 @@ test("mouse click selects a node and a second click starts editing", async ({ pa
   await page.keyboard.type("X");
 
   await expect(first).toHaveValue("AX");
+});
+
+test("mouse drag moves a node before a sibling", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Enter");
+  await nodeInput(page, "right/2").fill("C");
+  await nodeInput(page, "right/2").press("Escape");
+
+  await dragNodeTo(page, "right/2", "right/0", "before");
+
+  await expect(nodeInput(page, "right/0")).toHaveValue("C");
+  await expect(nodeInput(page, "right/1")).toHaveValue("A");
+  await expect(nodeInput(page, "right/2")).toHaveValue("B");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- C\n- A\n- B\n");
+});
+
+test("mouse drag shows a visible node preview while moving", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  const sourceBox = await nodeByPath(page, "right/1").boundingBox();
+  const targetBox = await nodeByPath(page, "right/0").boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    (sourceBox!.x + targetBox!.x) / 2,
+    (sourceBox!.y + targetBox!.y) / 2,
+    { steps: 8 }
+  );
+
+  const preview = page.locator(".node-drag-preview");
+  await expect(preview).toBeVisible();
+  await expect(preview).toHaveText("B");
+  await expect(page.locator(".node-drag-snap-line")).toHaveCount(1);
+  await expect(page.locator(".node-drag-snap-dot")).toHaveCount(2);
+
+  const previewBox = await preview.boundingBox();
+  expect(previewBox).not.toBeNull();
+  expect(previewBox!.width).toBeGreaterThan(0);
+  expect(previewBox!.height).toBeGreaterThan(0);
+
+  await page.mouse.up();
+});
+
+test("mouse drag snaps to a nearby node before dropping", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  const sourceBox = await nodeByPath(page, "right/1").boundingBox();
+  const targetBox = await nodeByPath(page, "right/0").boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+
+  const snapX = targetBox!.x + targetBox!.width + 52;
+  const snapY = targetBox!.y + targetBox!.height / 2;
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(snapX, snapY, { steps: 8 });
+
+  await expect(page.locator(".node-drag-snap-line")).toHaveCount(1);
+  await expect(page.locator(".node-drag-snap-dot")).toHaveCount(2);
+  await expect(nodeInput(page, "right/0")).toHaveClass(/drop-inside/);
+
+  await page.mouse.up();
+
+  await expect(nodeInput(page, "right/0")).toHaveValue("A");
+  await expect(nodeInput(page, "right/0/0")).toHaveValue("B");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  - B\n");
+});
+
+test("mouse drag can reparent a node", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  await dragNodeTo(page, "right/1", "right/0", "inside");
+
+  await expect(nodeInput(page, "right/0")).toHaveValue("A");
+  await expect(nodeInput(page, "right/0/0")).toHaveValue("B");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  - B\n");
+});
+
+test("mouse drag onto the root moves a node to the left branch", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  await dragNodeTo(page, "right/1", "root", "inside", "left");
+
+  await expect(nodeInput(page, "right/0")).toHaveValue("A");
+  await expect(nodeInput(page, "left/0")).toHaveValue("B");
+  await expect(markdownOutput(page)).toHaveText(
+    "#\n\n## Right\n\n- A\n\n## Left\n\n- B\n"
+  );
 });
 
 test("arrow navigation can move between the first node and the root", async ({ page }) => {
@@ -712,6 +858,40 @@ function markdownOutput(page: Page) {
 
 function nodeInput(page: Page, path: string) {
   return page.locator(`.node-input[data-node-path="${path}"]`);
+}
+
+function nodeByPath(page: Page, path: string) {
+  return page.locator(`[data-node-path="${path}"]`);
+}
+
+async function dragNodeTo(
+  page: Page,
+  sourcePath: string,
+  targetPath: string,
+  position: "before" | "after" | "inside",
+  rootSide: "left" | "right" = "right"
+) {
+  const sourceBox = await nodeByPath(page, sourcePath).boundingBox();
+  const targetBox = await nodeByPath(page, targetPath).boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+
+  const targetX =
+    targetPath === "root"
+      ? targetBox!.x + targetBox!.width * (rootSide === "left" ? 0.25 : 0.75)
+      : targetBox!.x + targetBox!.width / 2;
+  const targetY =
+    targetBox!.y +
+    targetBox!.height *
+      (position === "before" ? 0.12 : position === "after" ? 0.88 : 0.5);
+
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(targetX, targetY, { steps: 8 });
+  await page.mouse.up();
 }
 
 async function elementWidth(locator: ReturnType<Page["locator"]>): Promise<number> {

@@ -14,6 +14,7 @@ import {
   insertChildNodes,
   insertSiblingNodes,
   moveNodeDown,
+  moveNodeTo,
   moveNodeUp,
   nextNodePath,
   nextSiblingNodePath,
@@ -198,6 +199,106 @@ describe("mindmap tree commands", () => {
 - A
 - B
 - C
+`);
+  });
+
+  it("moves a node before or after another node", () => {
+    let mindmap = parse(`# Map
+
+- A
+- B
+- C
+`);
+
+    const moveBefore = moveNodeTo(mindmap, "right/2", "right/0", "before");
+    expect(moveBefore).not.toBeNull();
+    mindmap = moveBefore!.mindmap;
+
+    expect(moveBefore!.movedPath).toBe("right/0");
+    expect(serializeMindmap(mindmap)).toBe(`# Map
+
+- C
+- A
+- B
+`);
+
+    const moveAfter = moveNodeTo(mindmap, "right/0", "right/2", "after");
+    expect(moveAfter).not.toBeNull();
+
+    expect(moveAfter!.movedPath).toBe("right/2");
+    expect(serializeMindmap(moveAfter!.mindmap)).toBe(`# Map
+
+- A
+- B
+- C
+`);
+  });
+
+  it("moves a node into another node as the last child", () => {
+    const result = moveNodeTo(
+      parse(`# Map
+
+- A
+  - A-1
+- B
+`),
+      "right/1",
+      "right/0",
+      "inside"
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.movedPath).toBe("right/0/1");
+    expect(serializeMindmap(result!.mindmap)).toBe(`# Map
+
+- A
+  - A-1
+  - B
+`);
+  });
+
+  it("moves a node to the opposite root branch when dropped on the root", () => {
+    const result = moveNodeTo(
+      parse(`# Map
+
+- A
+- B
+`),
+      "right/1",
+      rootNodePath,
+      "inside",
+      "left"
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.movedPath).toBe("left/0");
+    expect(serializeMindmap(result!.mindmap)).toBe(`# Map
+
+## Right
+
+- A
+
+## Left
+
+- B
+`);
+  });
+
+  it("does not move a node into itself or its descendants", () => {
+    const mindmap = parse(`# Map
+
+- A
+  - A-1
+- B
+`);
+
+    expect(moveNodeTo(mindmap, "right/0", "right/0", "inside")).toBeNull();
+    expect(moveNodeTo(mindmap, "right/0", "right/0/0", "inside")).toBeNull();
+    expect(serializeMindmap(mindmap)).toBe(`# Map
+
+- A
+  - A-1
+- B
 `);
   });
 

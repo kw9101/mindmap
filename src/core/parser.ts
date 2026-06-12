@@ -9,6 +9,8 @@ type ListContext = {
 };
 
 const headingHelp = "Use canonical headings: '# Title', '#', '## Right', or '## Left'.";
+const fileShapeHelp =
+  "Use LF line endings, exactly one final newline, no extra trailing blank lines, and no trailing spaces on heading/section/blank lines. Empty nodes must be written as '-'.";
 
 export function parseMindmap(source: string): ParseResult {
   const diagnostics: Diagnostic[] = [];
@@ -229,17 +231,35 @@ type AddNodeResult =
 
 function validateFileShape(source: string, diagnostics: Diagnostic[]): void {
   if (source.includes("\r\n") || source.includes("\r")) {
-    diagnostics.push(error("MM018", "Line endings must be LF, not CRLF.", 1));
+    diagnostics.push(
+      error("MM018", "Line endings must be LF, not CRLF.", 1, 1, fileShapeHelp)
+    );
     return;
   }
 
   if (!source.endsWith("\n")) {
-    diagnostics.push(error("MM018", "File must end with exactly one trailing newline.", 1));
+    diagnostics.push(
+      error(
+        "MM018",
+        "File must end with exactly one trailing newline.",
+        1,
+        1,
+        fileShapeHelp
+      )
+    );
     return;
   }
 
   if (source.endsWith("\n\n")) {
-    diagnostics.push(error("MM018", "File must not end with extra blank lines.", lineCount(source)));
+    diagnostics.push(
+      error(
+        "MM018",
+        "File must not end with extra blank lines.",
+        lineCount(source),
+        1,
+        fileShapeHelp
+      )
+    );
     return;
   }
 
@@ -249,7 +269,13 @@ function validateFileShape(source: string, diagnostics: Diagnostic[]): void {
   );
   if (trailingIndex !== -1) {
     diagnostics.push(
-      error("MM018", "Line must not end with trailing spaces or tabs.", trailingIndex + 1)
+      error(
+        "MM018",
+        "Line must not end with trailing spaces or tabs.",
+        trailingIndex + 1,
+        1,
+        fileShapeHelp
+      )
     );
   }
 }
@@ -298,7 +324,13 @@ function parseListLine(line: string, lineNumber: number): ListLineResult {
   if (!emptyListItem && text === "") {
     return {
       ok: false,
-      diagnostic: error("MM018", "Empty list items must be written without trailing spaces.", lineNumber)
+      diagnostic: error(
+        "MM018",
+        "Empty list items must be written without trailing spaces.",
+        lineNumber,
+        1,
+        fileShapeHelp
+      )
     };
   }
 
