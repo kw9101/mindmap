@@ -92,8 +92,7 @@ pnpm tauri dev
 - 마우스 클릭: 노드 선택
 - 선택된 노드 다시 클릭 또는 선택 모드 `Enter`: 선택 노드 편집
 - 노드 드래그: 대상 노드의 위/아래/가운데로 끌어 앞 형제/뒤 형제/자식으로 재배치
-- `Option+ArrowUp` 또는 `Cmd+ArrowUp`: 형제 순서에서 위로 이동
-- `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
+- `Cmd/Ctrl+Arrow`: 선택 노드를 화면상 해당 방향으로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
 - `Esc`: 편집 모드에서 선택 모드로 전환. 빈 일반 노드에서는 해당 노드 삭제
 - 선택 모드 `ArrowUp` / `ArrowDown`: 화면상 위/아래에 있는 가장 가까운 노드 선택
@@ -101,6 +100,7 @@ pnpm tauri dev
 - 선택 모드 `Enter`: 선택 노드 편집
 - 선택 모드 `Tab`: 첫 자식 노드 선택, 없으면 자식 노드 생성
 - 선택 모드 `Shift+Tab`: 부모 노드 선택
+- 선택 모드 `Cmd/Ctrl+Arrow`: 선택 노드를 화면상 해당 방향으로 이동
 - 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - 빈 캔버스 드래그: 화면 pan

@@ -1,6 +1,7 @@
 export type KeyboardCompositionEventLike = {
   key?: string;
   altKey?: boolean;
+  ctrlKey?: boolean;
   metaKey?: boolean;
   shiftKey?: boolean;
   isComposing?: boolean;
@@ -33,6 +34,8 @@ export type NodeEditingShortcut =
   | "focus-parent"
   | "move-up"
   | "move-down"
+  | "move-left"
+  | "move-right"
   | "delete";
 
 export function getNodeEditingShortcut(
@@ -58,12 +61,23 @@ export function getNodeEditingShortcut(
     return event.shiftKey ? "focus-parent" : "add-child";
   }
 
-  if ((event.metaKey || event.altKey) && event.key === "ArrowUp") {
+  if ((event.metaKey || event.ctrlKey || event.altKey) && event.key === "ArrowUp") {
     return "move-up";
   }
 
-  if ((event.metaKey || event.altKey) && event.key === "ArrowDown") {
+  if (
+    (event.metaKey || event.ctrlKey || event.altKey) &&
+    event.key === "ArrowDown"
+  ) {
     return "move-down";
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.key === "ArrowLeft") {
+    return "move-left";
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.key === "ArrowRight") {
+    return "move-right";
   }
 
   if (

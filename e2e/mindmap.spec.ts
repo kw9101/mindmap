@@ -493,6 +493,61 @@ test("selection mode Tab stays in the app and creates or selects child nodes", a
   await expect(child).not.toHaveClass(/selected/);
 });
 
+test("selection mode Cmd/Ctrl arrows move the selected node", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  await page.keyboard.press("Control+ArrowUp");
+
+  await expect(nodeInput(page, "right/0")).toHaveValue("B");
+  await expect(nodeInput(page, "right/0")).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/0")).toHaveAttribute("readonly", "");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- B\n- A\n");
+
+  await page.keyboard.press("Control+ArrowDown");
+
+  await expect(nodeInput(page, "right/1")).toHaveValue("B");
+  await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
+
+  await page.keyboard.press("Control+ArrowRight");
+
+  await expect(nodeInput(page, "right/0/0")).toHaveValue("B");
+  await expect(nodeInput(page, "right/0/0")).toHaveClass(/selected/);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  - B\n");
+
+  await page.keyboard.press("Control+ArrowLeft");
+
+  await expect(nodeInput(page, "right/1")).toHaveValue("B");
+  await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
+});
+
+test("editing mode Cmd/Ctrl arrows move the node and keep editing", async ({
+  page
+}) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  const second = nodeInput(page, "right/1");
+  await second.fill("B");
+
+  await second.press("Control+ArrowUp");
+
+  const moved = nodeInput(page, "right/0");
+  await expect(moved).toHaveValue("B");
+  await expect(moved).toBeFocused();
+  await expect(moved).not.toHaveAttribute("readonly", "");
+
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+
+  await expect(markdownOutput(page)).toHaveText("#\n\n- B!\n- A\n");
+});
+
 test("ArrowDown moves to the nearest lower visible node", async ({
   page
 }) => {

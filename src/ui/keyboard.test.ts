@@ -42,6 +42,21 @@ describe("node editing shortcuts", () => {
     );
   });
 
+  it("uses Cmd or Ctrl arrows to move nodes while editing", () => {
+    expect(getNodeEditingShortcut({ key: "ArrowUp", metaKey: true })).toBe(
+      "move-up"
+    );
+    expect(getNodeEditingShortcut({ key: "ArrowDown", ctrlKey: true })).toBe(
+      "move-down"
+    );
+    expect(getNodeEditingShortcut({ key: "ArrowLeft", metaKey: true })).toBe(
+      "move-left"
+    );
+    expect(getNodeEditingShortcut({ key: "ArrowRight", ctrlKey: true })).toBe(
+      "move-right"
+    );
+  });
+
   it("does not run node shortcuts during IME composition", () => {
     expect(getNodeEditingShortcut({ key: "Tab", isComposing: true })).toBeNull();
     expect(getNodeEditingShortcut({ key: "Enter", keyCode: 229 })).toBeNull();

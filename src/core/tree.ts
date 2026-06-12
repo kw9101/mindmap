@@ -10,6 +10,7 @@ export type NodeLocation = {
 };
 
 export type NodeMovePosition = "before" | "after" | "inside";
+export type NodeMoveDirection = "up" | "down" | "left" | "right";
 
 export type MoveNodeResult = {
   mindmap: Mindmap;
@@ -184,6 +185,56 @@ export function moveNodeDown(mindmap: Mindmap, path: string): Mindmap {
 
   swap(location.siblings, location.index, nextIndex);
   return normalizeMindmap(next);
+}
+
+export function moveNodeByDirection(
+  mindmap: Mindmap,
+  path: string,
+  direction: NodeMoveDirection
+): MoveNodeResult | null {
+  if (isRootNodePath(path)) {
+    return null;
+  }
+
+  const location = findNodeLocation(mindmap, path);
+  if (!location) {
+    return null;
+  }
+
+  if (direction === "up" || direction === "down") {
+    const step = direction === "up" ? -1 : 1;
+    const sibling =
+      location.parent === null
+        ? directionalSibling(location, step)
+        : location.siblings[location.index + step];
+    if (!sibling) {
+      return null;
+    }
+
+    return moveNodeTo(
+      mindmap,
+      path,
+      sibling.path,
+      direction === "up" ? "before" : "after"
+    );
+  }
+
+  const shouldIndent =
+    (location.node.direction === "right" && direction === "right") ||
+    (location.node.direction === "left" && direction === "left");
+  if (shouldIndent) {
+    const previousSibling =
+      location.parent === null
+        ? directionalSibling(location, -1)
+        : location.siblings[location.index - 1];
+    return previousSibling
+      ? moveNodeTo(mindmap, path, previousSibling.path, "inside")
+      : null;
+  }
+
+  return location.parent
+    ? moveNodeTo(mindmap, path, location.parent.path, "after")
+    : null;
 }
 
 export function moveNodeTo(

@@ -447,6 +447,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - 편집 중 `Shift+Tab`: 부모 노드로 포커스/선택을 이동한다.
 - `ArrowUp` / `ArrowDown`: 화면상 위/아래에 있는 가장 가까운 노드 선택. 오른쪽 가지 노드는 왼쪽 상단, 왼쪽 가지 노드는 오른쪽 상단을 기준점으로 삼아 같은 시각적 열의 노드를 우선한다.
 - `ArrowLeft` / `ArrowRight`: 화면상 왼쪽/오른쪽으로 한 세대씩 이동한다. 부모 또는 바로 아래 자식 세대만 거치며, 정렬된 더 먼 세대로 건너뛰지 않는다.
+- `Cmd/Ctrl+Arrow`: 선택 또는 편집 중인 노드를 화면상 해당 방향으로 이동한다. 위/아래는 같은 가지 방향의 형제 순서를 바꾸고, 좌/우는 오른쪽/왼쪽 가지 방향에 맞춰 들여쓰기 또는 내어쓰기로 동작한다.
 - 선택 모드 `Enter`: 노드 편집 시작
 - 선택 모드 `Tab`: 첫 자식 노드로 이동하고, 자식이 없으면 자식 노드를 추가한다. 브라우저 포커스 이동보다 앱 명령이 우선한다.
 - 선택 모드 `Shift+Tab`: 부모 노드를 선택한다.
@@ -635,7 +636,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - SQLite sidecar는 Markdown 파일 옆의 `{파일명}.mindmap.sqlite`로 시작했다. 현재는 view state key-value 저장소로 사용한다.
 - 줌은 문서 변경이 아니라 앱 전용 view state로 취급한다. 툴바 버튼과 `Cmd/Ctrl + +`, `Cmd/Ctrl + -`, `Cmd/Ctrl + 0` 단축키로 조정하며 SQLite view state에 저장된다.
 - Tauri dialog plugin 권한을 `src-tauri/capabilities/default.json`에 추가했다.
-- 키보드 기본 조작은 아웃라이너에 가깝게 시작했다: 편집 중 Enter 다음 형제 이동/생성, Tab 첫 자식 이동/생성, Shift+Enter 위 형제 이동/생성, Shift+Tab 부모 포커스, Cmd/Option+ArrowUp/Down 이동, Cmd/Option+Backspace 삭제. 선택 모드 Enter는 편집 시작이다.
+- 키보드 기본 조작은 아웃라이너에 가깝게 시작했다: 편집 중 Enter 다음 형제 이동/생성, Tab 첫 자식 이동/생성, Shift+Enter 위 형제 이동/생성, Shift+Tab 부모 포커스, Cmd/Ctrl+Arrow 방향 이동, Cmd/Option+Backspace 삭제. 선택 모드 Enter는 편집 시작이다.
 - 편집 중 `Esc`는 선택 모드로 빠져나오되, 텍스트가 정확히 빈 일반 노드에서는 해당 노드를 삭제한다.
 - 키바인딩 도움말을 추가했다. 툴바 `?` 버튼, 선택 모드 `?`, `Cmd/Ctrl + /`로 현재 구현된 단축키를 확인할 수 있다.
 - 선택 모드를 추가했다. Esc로 편집 모드에서 빠져나오고, 선택 모드에서 화살표는 화면 좌표 기준으로 위/아래/왼쪽/오른쪽의 가장 가까운 노드를 선택한다.

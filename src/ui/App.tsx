@@ -49,14 +49,14 @@ import {
   firstNodePath,
   insertSiblingNodes,
   isRootNodePath,
+  moveNodeByDirection,
   moveNodeTo,
-  moveNodeDown,
-  moveNodeUp,
   nextSiblingNodePath,
   parentNodePath,
   previousNodePath,
   previousSiblingNodePath,
   rootNodePath,
+  type NodeMoveDirection,
   type NodeMovePosition,
   updateNodeText,
   updateRootTitle
@@ -112,7 +112,7 @@ type FocusedNodeTarget = {
   editing: boolean;
 };
 
-type SpatialDirection = "up" | "down" | "left" | "right";
+type SpatialDirection = NodeMoveDirection;
 
 type NodeDropTarget = {
   sourcePath: string;
@@ -158,8 +158,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
       { keys: "Shift+Tab", action: "부모 노드 편집" },
       { keys: "Esc", action: "선택 모드로 전환" },
-      { keys: "Option/Cmd+ArrowUp", action: "위로 이동" },
-      { keys: "Option/Cmd+ArrowDown", action: "아래로 이동" },
+      { keys: "Cmd/Ctrl+Arrow", action: "노드를 해당 방향으로 이동" },
       { keys: "Option/Cmd+Backspace", action: "노드 삭제" }
     ]
   },
@@ -171,6 +170,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Enter", action: "편집 시작" },
       { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
       { keys: "Shift+Tab", action: "부모 노드 선택" },
+      { keys: "Cmd/Ctrl+Arrow", action: "노드를 해당 방향으로 이동" },
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
       { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
@@ -294,6 +294,23 @@ export function App() {
       editingNodePath: editing ? path : null
     }));
   }, []);
+
+  const moveFocusedNode = useCallback(
+    (path: string, direction: NodeMoveDirection, editing: boolean) => {
+      if (!mindmap) {
+        return false;
+      }
+
+      const result = moveNodeByDirection(mindmap, path, direction);
+      if (!result) {
+        return false;
+      }
+
+      commitMindmap(result.mindmap, "Move node", result.movedPath, editing);
+      return true;
+    },
+    [commitMindmap, mindmap]
+  );
 
   const exitEditingIfCurrent = useCallback((path: string) => {
     setViewState((current) =>
@@ -987,6 +1004,13 @@ export function App() {
         event.preventDefault();
         void handlePasteSubtree();
       } else if (!editing && mindmap && viewState.selectedNodePath) {
+        const moveDirection = modifiedArrowDirectionForEvent(event);
+        if (moveDirection) {
+          event.preventDefault();
+          moveFocusedNode(viewState.selectedNodePath, moveDirection, false);
+          return;
+        }
+
         const spatialDirection = spatialDirectionForKey(event.key);
         if (spatialDirection) {
           event.preventDefault();
@@ -1064,6 +1088,7 @@ export function App() {
     handleZoomIn,
     handleZoomOut,
     mindmap,
+    moveFocusedNode,
     selectNode,
     showKeyboardHelp,
     viewState.editingNodePath,
@@ -1149,13 +1174,8 @@ export function App() {
       onFocusParent={(path) => {
         selectNode(parentNodePath(mindmap!, path), true);
       }}
-      onMoveUp={(path) => {
-        const next = moveNodeUp(mindmap!, path);
-        commitMindmap(next, "Move node up", remapPathAfterTextMatch(next, path));
-      }}
-      onMoveDown={(path) => {
-        const next = moveNodeDown(mindmap!, path);
-        commitMindmap(next, "Move node down", remapPathAfterTextMatch(next, path));
+      onMove={(path, direction) => {
+        moveFocusedNode(path, direction, true);
       }}
       onDragPointerDown={handleNodeDragPointerDown}
       onDragPointerMove={handleNodeDragPointerMove}
@@ -1641,8 +1661,7 @@ function NodeEditor({
   onDeleteEmpty,
   onFocusPrevious,
   onFocusParent,
-  onMoveUp,
-  onMoveDown,
+  onMove,
   onDragPointerDown,
   onDragPointerMove,
   onDragPointerUp,
@@ -1663,8 +1682,7 @@ function NodeEditor({
   onDeleteEmpty: (path: string, nextFocusedNode?: FocusedNodeTarget | null) => void;
   onFocusPrevious: (path: string) => void;
   onFocusParent: (path: string) => void;
-  onMoveUp: (path: string) => void;
-  onMoveDown: (path: string) => void;
+  onMove: (path: string, direction: NodeMoveDirection) => void;
   onDragPointerDown: (
     path: string,
     event: PointerEvent<HTMLTextAreaElement>
@@ -1700,8 +1718,7 @@ function NodeEditor({
             onDeleteEmpty={onDeleteEmpty}
             onFocusPrevious={onFocusPrevious}
             onFocusParent={onFocusParent}
-            onMoveUp={onMoveUp}
-            onMoveDown={onMoveDown}
+            onMove={onMove}
             onDragPointerDown={onDragPointerDown}
             onDragPointerMove={onDragPointerMove}
             onDragPointerUp={onDragPointerUp}
@@ -1771,9 +1788,13 @@ function NodeEditor({
             } else if (shortcut === "focus-parent") {
               onFocusParent(node.path);
             } else if (shortcut === "move-up") {
-              onMoveUp(node.path);
+              onMove(node.path, "up");
             } else if (shortcut === "move-down") {
-              onMoveDown(node.path);
+              onMove(node.path, "down");
+            } else if (shortcut === "move-left") {
+              onMove(node.path, "left");
+            } else if (shortcut === "move-right") {
+              onMove(node.path, "right");
             } else if (shortcut === "delete") {
               onDelete(node.path);
             }
@@ -2067,14 +2088,6 @@ function firstChildPathForExistingNode(
   return parent?.children[0]?.path ?? null;
 }
 
-function remapPathAfterTextMatch(mindmap: Mindmap, previousPath: string): string {
-  if (findNode(mindmap, previousPath)) {
-    return previousPath;
-  }
-
-  return firstNodePath(mindmap);
-}
-
 function selectionPathAfterDelete(mindmap: Mindmap, fallbackPath: string): string {
   if (isRootNodePath(fallbackPath)) {
     return rootNodePath;
@@ -2153,6 +2166,14 @@ function spatialDirectionForKey(key: string): SpatialDirection | null {
   }
 
   return null;
+}
+
+function modifiedArrowDirectionForEvent(event: KeyboardEvent): NodeMoveDirection | null {
+  if (!event.metaKey && !event.ctrlKey) {
+    return null;
+  }
+
+  return spatialDirectionForKey(event.key);
 }
 
 function nodeDropTargetFromPointer(

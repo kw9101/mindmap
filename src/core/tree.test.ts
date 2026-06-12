@@ -13,6 +13,7 @@ import {
   indentNode,
   insertChildNodes,
   insertSiblingNodes,
+  moveNodeByDirection,
   moveNodeDown,
   moveNodeTo,
   moveNodeUp,
@@ -200,6 +201,106 @@ describe("mindmap tree commands", () => {
 - B
 - C
 `);
+  });
+
+  it("moves right branch nodes by visual keyboard direction", () => {
+    const mindmap = parse(`# Map
+
+- A
+- B
+`);
+
+    const movedDown = moveNodeByDirection(mindmap, "right/0", "down");
+    expect(movedDown).not.toBeNull();
+    expect(movedDown!.movedPath).toBe("right/1");
+    expect(serializeMindmap(movedDown!.mindmap)).toBe(`# Map
+
+- B
+- A
+`);
+
+    const movedUp = moveNodeByDirection(movedDown!.mindmap, "right/1", "up");
+    expect(movedUp).not.toBeNull();
+    expect(movedUp!.movedPath).toBe("right/0");
+    expect(serializeMindmap(movedUp!.mindmap)).toBe(`# Map
+
+- A
+- B
+`);
+
+    const indented = moveNodeByDirection(mindmap, "right/1", "right");
+    expect(indented).not.toBeNull();
+    expect(indented!.movedPath).toBe("right/0/0");
+    expect(serializeMindmap(indented!.mindmap)).toBe(`# Map
+
+- A
+  - B
+`);
+
+    const outdented = moveNodeByDirection(indented!.mindmap, "right/0/0", "left");
+    expect(outdented).not.toBeNull();
+    expect(outdented!.movedPath).toBe("right/1");
+    expect(serializeMindmap(outdented!.mindmap)).toBe(`# Map
+
+- A
+- B
+`);
+  });
+
+  it("mirrors horizontal keyboard moves on the left branch", () => {
+    const mindmap = parse(`# Map
+
+## Right
+
+- R
+
+## Left
+
+- L1
+- L2
+`);
+
+    const indented = moveNodeByDirection(mindmap, "left/1", "left");
+    expect(indented).not.toBeNull();
+    expect(indented!.movedPath).toBe("left/0/0");
+    expect(serializeMindmap(indented!.mindmap)).toBe(`# Map
+
+## Right
+
+- R
+
+## Left
+
+- L1
+  - L2
+`);
+
+    const outdented = moveNodeByDirection(indented!.mindmap, "left/0/0", "right");
+    expect(outdented).not.toBeNull();
+    expect(outdented!.movedPath).toBe("left/1");
+    expect(serializeMindmap(outdented!.mindmap)).toBe(`# Map
+
+## Right
+
+- R
+
+## Left
+
+- L1
+- L2
+`);
+  });
+
+  it("does not keyboard-move the root or nodes without a target", () => {
+    const mindmap = parse(`# Map
+
+- A
+`);
+
+    expect(moveNodeByDirection(mindmap, rootNodePath, "right")).toBeNull();
+    expect(moveNodeByDirection(mindmap, "right/0", "up")).toBeNull();
+    expect(moveNodeByDirection(mindmap, "right/0", "right")).toBeNull();
+    expect(moveNodeByDirection(mindmap, "right/0", "left")).toBeNull();
   });
 
   it("moves a node before or after another node", () => {
