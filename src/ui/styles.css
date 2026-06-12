@@ -213,7 +213,6 @@ button:disabled:hover {
 
 .root-node input,
 .node-input {
-  width: 180px;
   border: 1px solid #ccd2d9;
   border-radius: 8px;
   background: #ffffff;
@@ -228,7 +227,6 @@ button:disabled:hover {
 }
 
 .root-node input {
-  width: min(260px, 100%);
   text-align: center;
   font-weight: 700;
   min-height: 44px;
@@ -525,12 +523,10 @@ button:disabled:hover {
 
   .root-node input,
   .node-input {
-    width: min(280px, calc(100vw - 56px));
     max-width: 280px;
   }
 
   .root-node input {
-    width: min(260px, calc(100vw - 56px));
     max-width: 260px;
   }
 }

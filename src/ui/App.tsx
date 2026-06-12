@@ -70,6 +70,7 @@ import {
   writeMarkdownFileAtomic,
   type DiffFiles
 } from "../platform/native";
+import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
 const autosaveDelayMs = 700;
 const externalPollMs = 2500;
@@ -809,6 +810,7 @@ export function App() {
               <section className="root-node" aria-label="Root node">
                 <input
                   value={mindmap!.title}
+                  style={{ width: getRootInputWidth(mindmap!.title) }}
                   aria-label="Root heading"
                   onChange={(event) =>
                     commitMindmap(
@@ -903,6 +905,7 @@ function NodeEditor({
           className={`node-input${selected ? " selected" : ""}`}
           data-node-path={node.path}
           value={node.text}
+          style={{ width: getNodeInputWidth(node.text) }}
           aria-label={`Node ${node.path}`}
           onFocus={() => onSelect(node.path)}
           onChange={(event) => onTextChange(node.path, event.target.value)}
