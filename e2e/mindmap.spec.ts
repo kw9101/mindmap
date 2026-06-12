@@ -5,6 +5,60 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator(".node-input")).toHaveCount(1);
 });
 
+test("initial document renders one empty mindmap node", async ({ page }) => {
+  await expect(page.locator(".file-name")).toHaveText("untitled.md");
+  await expect(page.getByText("browser preview")).toBeVisible();
+  await expect(page.getByLabel("Root heading")).toHaveValue("");
+  await expect(nodeInput(page, "right/0")).toBeVisible();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+});
+
+test("editing the root and first node updates markdown", async ({ page }) => {
+  await page.getByLabel("Root heading").fill("Project");
+  await nodeInput(page, "right/0").fill("Idea");
+
+  await expect(markdownOutput(page)).toHaveText("# Project\n\n- Idea\n");
+});
+
+test("Enter creates a sibling node and undo redo restores it", async ({ page }) => {
+  const firstNode = nodeInput(page, "right/0");
+
+  await firstNode.focus();
+  await firstNode.press("Enter");
+
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n-\n");
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".node-input")).toHaveCount(1);
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n-\n");
+});
+
+test("toolbar can add right and left root nodes", async ({ page }) => {
+  await page.getByRole("button", { name: "Add right root node" }).click();
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n-\n");
+
+  await page.getByRole("button", { name: "Add left root node" }).click();
+  await expect(nodeInput(page, "left/0")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n-\n\n## Left\n\n-\n");
+});
+
+test("zoom controls can zoom in and reset", async ({ page }) => {
+  const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
+
+  await expect(resetZoomButton).toHaveText("100%");
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(resetZoomButton).toHaveText("110%");
+  await page.getByRole("button", { name: "Reset zoom" }).click();
+  await expect(resetZoomButton).toHaveText("100%");
+});
+
 test("arrow navigation can move between the first node and the root", async ({ page }) => {
   const root = page.getByLabel("Root heading");
   const firstNode = page.locator(".node-input");
@@ -135,6 +189,10 @@ test("empty nodes stay compact and grow with text", async ({ page }) => {
 
 function markdownOutput(page: Page) {
   return page.locator(".markdown-panel pre");
+}
+
+function nodeInput(page: Page, path: string) {
+  return page.locator(`.node-input[data-node-path="${path}"]`);
 }
 
 async function elementWidth(locator: ReturnType<Page["locator"]>): Promise<number> {
