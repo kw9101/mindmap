@@ -39,11 +39,11 @@ import {
   isRootNodePath,
   moveNodeDown,
   moveNodeUp,
-  nextNodePath,
   nextSiblingNodePath,
   outdentNode,
   parentNodePath,
   previousNodePath,
+  previousSiblingNodePath,
   rootNodePath,
   updateNodeText,
   updateRootTitle
@@ -100,7 +100,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
   {
     title: "선택 모드",
     shortcuts: [
-      { keys: "ArrowUp/Down", action: "이전/다음 노드 선택" },
+      { keys: "ArrowUp/Down", action: "위/아래 형제 노드 선택" },
       { keys: "ArrowLeft", action: "부모 노드 선택" },
       { keys: "ArrowRight", action: "첫 자식 노드 선택" },
       { keys: "Enter/Space/F2", action: "편집 시작" },
@@ -633,10 +633,10 @@ export function App() {
       } else if (!editing && mindmap && viewState.selectedNodePath) {
         if (event.key === "ArrowUp") {
           event.preventDefault();
-          selectNode(previousNodePath(mindmap, viewState.selectedNodePath), false);
+          selectNode(previousSiblingNodePath(mindmap, viewState.selectedNodePath), false);
         } else if (event.key === "ArrowDown") {
           event.preventDefault();
-          selectNode(nextNodePath(mindmap, viewState.selectedNodePath), false);
+          selectNode(nextSiblingNodePath(mindmap, viewState.selectedNodePath), false);
         } else if (event.key === "ArrowLeft") {
           event.preventDefault();
           selectNode(parentNodePath(mindmap, viewState.selectedNodePath), false);

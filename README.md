@@ -91,7 +91,7 @@ pnpm tauri dev
 - `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
 - `Esc`: 편집 모드에서 선택 모드로 전환. 빈 일반 노드에서는 해당 노드 삭제
-- 선택 모드 `ArrowUp` / `ArrowDown`: 이전/다음 노드 선택
+- 선택 모드 `ArrowUp` / `ArrowDown`: 위/아래 형제 노드 선택
 - 선택 모드 `ArrowLeft`: 부모 노드 선택
 - 선택 모드 `ArrowRight`: 첫 자식 노드 선택
 - 선택 모드 `Enter`, `Space`, `F2`: 선택 노드 편집

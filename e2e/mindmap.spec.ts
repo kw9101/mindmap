@@ -112,6 +112,32 @@ test("arrow navigation can move between the first node and the root", async ({ p
   await expect(firstNode).toHaveClass(/selected/);
 });
 
+test("ArrowDown moves to the lower sibling instead of the first child", async ({
+  page
+}) => {
+  const parent = nodeInput(page, "right/0");
+
+  await parent.fill("A");
+  await parent.press("Tab");
+  await expect(nodeInput(page, "right/0/0")).toBeFocused();
+
+  await parent.focus();
+  await parent.press("Enter");
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+
+  await parent.focus();
+  await parent.press("Escape");
+  await page.keyboard.press("ArrowDown");
+
+  await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/0/0")).not.toHaveClass(/selected/);
+
+  await page.keyboard.press("ArrowUp");
+
+  await expect(parent).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/1")).not.toHaveClass(/selected/);
+});
+
 test("Tab while editing creates a child node instead of indenting under a sibling", async ({
   page
 }) => {

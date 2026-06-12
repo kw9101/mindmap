@@ -19,6 +19,7 @@ import {
   outdentNode,
   parentNodePath,
   previousNodePath,
+  previousSiblingNodePath,
   rootNodePath,
   updateNodeText
 } from "./tree";
@@ -110,6 +111,20 @@ describe("mindmap tree commands", () => {
 
     expect(nextNodePath(mindmap, "right/0")).toBe("right/0/0");
     expect(nextSiblingNodePath(mindmap, "right/0")).toBe("right/1");
+  });
+
+  it("finds vertical sibling paths for arrow navigation", () => {
+    const mindmap = parse(`# Map
+
+- A
+  - A-1
+- B
+`);
+
+    expect(nextNodePath(mindmap, "right/0")).toBe("right/0/0");
+    expect(nextSiblingNodePath(mindmap, "right/0")).toBe("right/1");
+    expect(previousSiblingNodePath(mindmap, "right/1")).toBe("right/0");
+    expect(previousSiblingNodePath(mindmap, "right/0")).toBe("right/0");
   });
 
   it("indents a node under its previous sibling", () => {
