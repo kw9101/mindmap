@@ -456,43 +456,33 @@ button:disabled:hover {
   }
 
   .workspace {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(72px, 1fr) auto minmax(72px, 1fr);
     align-items: center;
-    justify-items: center;
-    gap: 20px;
-    padding: 24px 20px;
+    justify-items: stretch;
+    gap: 16px;
+    padding: 24px 16px;
   }
 
   .branch,
   .branch-left,
   .branch-right {
-    min-height: auto;
-    width: 100%;
-    align-items: center;
+    min-height: 260px;
   }
 
-  .node-subtree,
-  .node-subtree.left,
-  .node-subtree.right {
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    max-width: 100%;
+  .branch-right .root-child-column {
+    padding-left: 16px;
   }
 
-  .node-subtree.left > .node-row {
-    flex-direction: row;
+  .branch-left .root-child-column {
+    padding-right: 16px;
   }
 
-  .node-row,
-  .node-subtree.left > .node-row {
-    align-items: center;
-    flex-direction: column;
-    max-width: 100%;
+  .node-subtree.right > .child-column {
+    padding-left: 16px;
   }
 
-  .node-actions {
-    align-self: center;
+  .node-subtree.left > .child-column {
+    padding-right: 16px;
   }
 
   .child-column,
@@ -501,24 +491,7 @@ button:disabled:hover {
   .root-child-column,
   .branch-right .root-child-column,
   .branch-left .root-child-column {
-    align-items: center;
-    padding: 0;
     max-width: 100%;
-  }
-
-  .root-node::before,
-  .root-node::after,
-  .node-subtree.right:has(> .child-column) > .node-row::after,
-  .node-subtree.left:has(> .child-column) > .node-row::before,
-  .node-subtree.right > .child-column > .node-subtree::before,
-  .node-subtree.left > .child-column > .node-subtree::after,
-  .node-subtree.right > .child-column::before,
-  .node-subtree.left > .child-column::before,
-  .branch-right .root-child-column > .node-subtree::before,
-  .branch-left .root-child-column > .node-subtree::after,
-  .branch-right .root-child-column::before,
-  .branch-left .root-child-column::before {
-    display: none;
   }
 
   .root-node input,
