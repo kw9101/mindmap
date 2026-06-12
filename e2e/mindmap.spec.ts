@@ -59,6 +59,40 @@ test("zoom controls can zoom in and reset", async ({ page }) => {
   await expect(resetZoomButton).toHaveText("100%");
 });
 
+test("canvas can pan by dragging and reset to center", async ({ page }) => {
+  const viewport = page.getByLabel("Mindmap canvas");
+  const workspace = page.locator(".workspace");
+  const box = await viewport.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + 24;
+  const startY = box!.y + 24;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 80, startY + 40);
+  await page.mouse.up();
+
+  await expect
+    .poll(() =>
+      workspace.evaluate((element) => ({
+        x: getComputedStyle(element).getPropertyValue("--workspace-pan-x").trim(),
+        y: getComputedStyle(element).getPropertyValue("--workspace-pan-y").trim()
+      }))
+    )
+    .toEqual({ x: "80px", y: "40px" });
+
+  await page.getByRole("button", { name: "Reset pan" }).click();
+
+  await expect
+    .poll(() =>
+      workspace.evaluate((element) => ({
+        x: getComputedStyle(element).getPropertyValue("--workspace-pan-x").trim(),
+        y: getComputedStyle(element).getPropertyValue("--workspace-pan-y").trim()
+      }))
+    )
+    .toEqual({ x: "0px", y: "0px" });
+});
+
 test("node action buttons are not shown inline", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Add child node" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add sibling node" })).toHaveCount(0);
@@ -213,6 +247,45 @@ test("a child node is laid out to the right of its parent", async ({ page }) => 
   expect(Math.abs(relation!.verticalCenterDelta)).toBeLessThanOrEqual(2);
 });
 
+test("node connectors use full bezier SVG paths", async ({ page }) => {
+  const parent = page.locator('.node-input[data-node-path="right/0"]');
+
+  await parent.focus();
+  await parent.press("Tab");
+
+  await expect(page.locator(".connector-layer path")).toHaveCount(2);
+
+  const connectorState = await page.evaluate(() =>
+    Array.from(document.querySelectorAll<SVGPathElement>(".connector-layer path")).map(
+      (path) => ({
+        d: path.getAttribute("d") ?? "",
+        stroke: getComputedStyle(path).stroke
+      })
+    )
+  );
+
+  expect(connectorState.every((connector) => connector.d.includes(" C "))).toBe(true);
+  expect(connectorState.every((connector) => connector.stroke !== "none")).toBe(true);
+});
+
+test("sibling connectors share one branch trunk", async ({ page }) => {
+  const firstNode = nodeInput(page, "right/0");
+
+  await firstNode.focus();
+  for (let index = 0; index < 4; index += 1) {
+    await page.keyboard.press("Enter");
+  }
+
+  await expect(page.locator(".connector-layer path")).toHaveCount(1);
+  const connectorPath = await page
+    .locator(".connector-layer path")
+    .first()
+    .getAttribute("d");
+
+  expect(connectorPath).toContain(" C ");
+  expect(connectorPath).toContain(" L ");
+});
+
 test("IME composing Enter does not create a sibling node", async ({ page }) => {
   const firstNode = page.locator(".node-input");
 
@@ -267,6 +340,57 @@ test("compact sidebar layout keeps the first right node to the right of the root
   expect(relation).not.toBeNull();
   expect(relation!.gap).toBeGreaterThan(0);
   expect(Math.abs(relation!.verticalCenterDelta)).toBeLessThanOrEqual(2);
+});
+
+test("mobile viewport keeps curved connectors and draggable pan", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.locator(".node-input")).toHaveCount(1);
+
+  const parent = nodeInput(page, "right/0");
+  await parent.focus();
+  await parent.press("Tab");
+  await expect(nodeInput(page, "right/0/0")).toBeVisible();
+
+  await page.mouse.move(24, 210);
+  await page.mouse.down();
+  await page.mouse.move(84, 250);
+  await page.mouse.up();
+
+  const mobileState = await page.evaluate(() => {
+    const root = document.querySelector(".root-node input")?.getBoundingClientRect();
+    const parentNode = document
+      .querySelector('.node-input[data-node-path="right/0"]')
+      ?.getBoundingClientRect();
+    const childNode = document
+      .querySelector('.node-input[data-node-path="right/0/0"]')
+      ?.getBoundingClientRect();
+    const connectorPaths = Array.from(
+      document.querySelectorAll<SVGPathElement>(".connector-layer path")
+    ).map((path) => path.getAttribute("d") ?? "");
+    const workspace = document.querySelector(".workspace");
+
+    if (!root || !parentNode || !childNode || !workspace) {
+      return null;
+    }
+
+    return {
+      rootParentGap: Math.round(parentNode.left - root.right),
+      parentChildGap: Math.round(childNode.left - parentNode.right),
+      panX: getComputedStyle(workspace).getPropertyValue("--workspace-pan-x").trim(),
+      panY: getComputedStyle(workspace).getPropertyValue("--workspace-pan-y").trim(),
+      connectorCount: connectorPaths.length,
+      allConnectorsAreBezier: connectorPaths.every((path) => path.includes(" C "))
+    };
+  });
+
+  expect(mobileState).not.toBeNull();
+  expect(mobileState!.rootParentGap).toBeGreaterThan(0);
+  expect(mobileState!.parentChildGap).toBeGreaterThan(0);
+  expect(mobileState!.panX).toBe("60px");
+  expect(mobileState!.panY).toBe("40px");
+  expect(mobileState!.connectorCount).toBe(2);
+  expect(mobileState!.allConnectorsAreBezier).toBe(true);
 });
 
 test("empty nodes stay compact and grow with text", async ({ page }) => {

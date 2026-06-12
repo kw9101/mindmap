@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent
+} from "react";
 import {
   applyExternalSnapshot,
   chooseAppVersion,
@@ -51,7 +60,9 @@ import {
 import {
   createDefaultViewState,
   formatZoom,
+  panBy,
   parseViewState,
+  resetPan,
   resetZoom,
   serializeViewState,
   viewStateKey,
@@ -78,6 +89,11 @@ import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
 const autosaveDelayMs = 700;
 const externalPollMs = 2500;
+
+type ConnectorPath = {
+  id: string;
+  d: string;
+};
 
 type KeyboardShortcutGroup = {
   title: string;
@@ -137,6 +153,15 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [diffFiles, setDiffFiles] = useState<DiffFiles | null>(null);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [connectorPaths, setConnectorPaths] = useState<ConnectorPath[]>([]);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const panDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    pan: MindmapViewState["pan"];
+  } | null>(null);
 
   const activeDocument = history.present.value;
   const parseResult = useMemo(
@@ -326,6 +351,58 @@ export function App() {
       ...current,
       zoom: resetZoom()
     }));
+  }, []);
+
+  const handleResetPan = useCallback(() => {
+    setViewState((current) => ({
+      ...current,
+      pan: resetPan()
+    }));
+  }, []);
+
+  const handleViewportPointerDown = useCallback(
+    (event: PointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || isInteractivePanTarget(event.target)) {
+        return;
+      }
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+      panDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        pan: viewState.pan
+      };
+      setIsPanning(true);
+    },
+    [viewState.pan]
+  );
+
+  const handleViewportPointerMove = useCallback((event: PointerEvent<HTMLElement>) => {
+    const drag = panDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    setViewState((current) => ({
+      ...current,
+      pan: panBy(drag.pan, deltaX, deltaY)
+    }));
+  }, []);
+
+  const stopViewportPan = useCallback((event: PointerEvent<HTMLElement>) => {
+    const drag = panDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    panDragRef.current = null;
+    setIsPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }, []);
 
   const handleCopySubtree = useCallback(async () => {
@@ -567,6 +644,39 @@ export function App() {
     input?.focus();
   }, [viewState.editingNodePath]);
 
+  useLayoutEffect(() => {
+    if (!mindmap) {
+      setConnectorPaths([]);
+      return;
+    }
+
+    const updateConnectors = () => {
+      const workspace = workspaceRef.current;
+      if (!workspace) {
+        setConnectorPaths([]);
+        return;
+      }
+
+      setConnectorPaths(buildConnectorPaths(workspace, mindmap, viewState.zoom));
+    };
+
+    updateConnectors();
+
+    const frame = window.requestAnimationFrame(updateConnectors);
+    const resizeObserver = new ResizeObserver(updateConnectors);
+    resizeObserver.observe(workspaceRef.current!);
+    workspaceRef.current!
+      .querySelectorAll("[data-node-path]")
+      .forEach((element) => resizeObserver.observe(element));
+    window.addEventListener("resize", updateConnectors);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateConnectors);
+    };
+  }, [mindmap, viewState.zoom]);
+
   useEffect(() => {
     if (!showKeyboardHelp) {
       return;
@@ -702,7 +812,9 @@ export function App() {
   const rightNodes = mindmap?.children.filter((node) => node.direction === "right") ?? [];
   const leftNodes = mindmap?.children.filter((node) => node.direction === "left") ?? [];
   const workspaceStyle = {
-    "--workspace-zoom": String(viewState.zoom)
+    "--workspace-zoom": String(viewState.zoom),
+    "--workspace-pan-x": `${viewState.pan.x}px`,
+    "--workspace-pan-y": `${viewState.pan.y}px`
   } as CSSProperties;
   const renderNodeEditor = (node: MindmapNode, side: Direction) => (
     <NodeEditor
@@ -853,6 +965,14 @@ export function App() {
             >
               +
             </button>
+            <button
+              type="button"
+              aria-label="Reset pan"
+              title="Reset pan"
+              onClick={handleResetPan}
+            >
+              Center
+            </button>
           </div>
         </div>
       </header>
@@ -905,13 +1025,26 @@ export function App() {
 
       {parseResult.ok ? (
         <>
-          <section className="workspace-viewport">
+          <section
+            className={`workspace-viewport${isPanning ? " is-panning" : ""}`}
+            aria-label="Mindmap canvas"
+            onPointerDown={handleViewportPointerDown}
+            onPointerMove={handleViewportPointerMove}
+            onPointerUp={stopViewportPan}
+            onPointerCancel={stopViewportPan}
+          >
             <section
               className={`workspace${leftNodes.length > 0 ? " has-left" : ""}${
                 rightNodes.length > 0 ? " has-right" : ""
               }`}
+              ref={workspaceRef}
               style={workspaceStyle}
             >
+              <svg className="connector-layer" aria-hidden="true">
+                {connectorPaths.map((connector) => (
+                  <path key={connector.id} d={connector.d} />
+                ))}
+              </svg>
               <aside className="branch branch-left" aria-label="Left branch">
                 {leftNodes.length > 0 && (
                   <div className="root-child-column">
@@ -1268,6 +1401,200 @@ function selectionPathAfterDelete(mindmap: Mindmap, fallbackPath: string): strin
   }
 
   return findNode(mindmap, fallbackPath) ? fallbackPath : firstNodePath(mindmap);
+}
+
+function buildConnectorPaths(
+  workspace: HTMLElement,
+  mindmap: Mindmap,
+  zoom: number
+): ConnectorPath[] {
+  const paths: ConnectorPath[] = [];
+  const rootInput = nodeElement(workspace, rootNodePath);
+
+  if (!rootInput) {
+    return paths;
+  }
+
+  const addNodeConnectors = (parentPath: string, children: MindmapNode[]) => {
+    const parentElement = nodeElement(workspace, parentPath);
+    if (!parentElement) {
+      return;
+    }
+
+    const childAnchors = children
+      .map((child) => {
+        const childElement = nodeElement(workspace, child.path);
+        if (!childElement) {
+          return null;
+        }
+
+        return {
+          node: child,
+          anchor: nodeAnchor(workspace, childElement, child.direction, "target", zoom)
+        };
+      })
+      .filter((child): child is { node: MindmapNode; anchor: { x: number; y: number } } =>
+        Boolean(child)
+      );
+
+    for (const direction of ["left", "right"] as const) {
+      const directionalAnchors = childAnchors.filter(
+        (child) => child.node.direction === direction
+      );
+      if (directionalAnchors.length === 0) {
+        continue;
+      }
+
+      const source = nodeAnchor(workspace, parentElement, direction, "source", zoom);
+      paths.push({
+        id: `${parentPath}->${direction}-children`,
+        d: connectorPathToChildren(
+          source,
+          directionalAnchors.map((child) => child.anchor),
+          direction
+        )
+      });
+    }
+
+    for (const child of children) {
+      addNodeConnectors(child.path, child.children);
+    }
+  };
+
+  addNodeConnectors(rootNodePath, mindmap.children);
+  return paths;
+}
+
+function nodeElement(workspace: HTMLElement, path: string): HTMLElement | null {
+  return workspace.querySelector<HTMLElement>(
+    `[data-node-path="${CSS.escape(path)}"]`
+  );
+}
+
+function nodeAnchor(
+  workspace: HTMLElement,
+  element: HTMLElement,
+  direction: Direction,
+  role: "source" | "target",
+  zoom: number
+): { x: number; y: number } {
+  const workspaceRect = workspace.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  const scale = zoom || 1;
+  const isRight = direction === "right";
+  const anchorX =
+    role === "source"
+      ? isRight
+        ? rect.right
+        : rect.left
+      : isRight
+        ? rect.left
+        : rect.right;
+
+  return {
+    x: (anchorX - workspaceRect.left) / scale,
+    y: (rect.top + rect.height / 2 - workspaceRect.top) / scale
+  };
+}
+
+function connectorPathToChildren(
+  source: Point,
+  targets: Point[],
+  direction: Direction
+): string {
+  if (targets.length === 0) {
+    return "";
+  }
+
+  if (targets.length === 1) {
+    return connectorPathBetween(source, targets[0], direction);
+  }
+
+  const sortedTargets = [...targets].sort((left, right) => left.y - right.y);
+  const trunkX = branchTrunkX(source, sortedTargets, direction);
+  const minY = sortedTargets[0].y;
+  const maxY = sortedTargets[sortedTargets.length - 1].y;
+  const branchGap = Math.min(
+    ...sortedTargets.map((target) => Math.abs(target.x - trunkX))
+  );
+  const cornerRadius = Math.min(18, Math.max(8, branchGap * 0.45));
+  const parts = [
+    curveSegment(source, { x: trunkX, y: source.y }, direction),
+    `M ${roundPathNumber(trunkX)} ${roundPathNumber(minY + cornerRadius)}`,
+    `L ${roundPathNumber(trunkX)} ${roundPathNumber(maxY - cornerRadius)}`
+  ];
+
+  for (const target of sortedTargets) {
+    parts.push(branchPathFromTrunk(trunkX, target, direction, source.y, cornerRadius));
+  }
+
+  return parts.join(" ");
+}
+
+type Point = { x: number; y: number };
+
+function connectorPathBetween(source: Point, target: Point, direction: Direction): string {
+  return curveSegment(source, target, direction);
+}
+
+function curveSegment(source: Point, target: Point, direction: Direction): string {
+  const distance = Math.max(Math.abs(target.x - source.x), 36);
+  const handle = Math.min(140, Math.max(28, distance * 0.5));
+  const sourceControlX = source.x + (direction === "right" ? handle : -handle);
+  const targetControlX = target.x + (direction === "right" ? -handle : handle);
+
+  return [
+    `M ${roundPathNumber(source.x)} ${roundPathNumber(source.y)}`,
+    `C ${roundPathNumber(sourceControlX)} ${roundPathNumber(source.y)}`,
+    `${roundPathNumber(targetControlX)} ${roundPathNumber(target.y)}`,
+    `${roundPathNumber(target.x)} ${roundPathNumber(target.y)}`
+  ].join(" ");
+}
+
+function branchPathFromTrunk(
+  trunkX: number,
+  target: Point,
+  direction: Direction,
+  sourceY: number,
+  cornerRadius: number
+): string {
+  const sign = direction === "right" ? 1 : -1;
+  const verticalDelta = target.y - sourceY;
+  const isCenterBranch = Math.abs(verticalDelta) <= cornerRadius;
+  const startY = isCenterBranch
+    ? target.y
+    : target.y - Math.sign(verticalDelta) * cornerRadius;
+  const elbowX = trunkX + sign * cornerRadius;
+  const elbow = { x: elbowX, y: target.y };
+
+  return [
+    `M ${roundPathNumber(trunkX)} ${roundPathNumber(startY)}`,
+    `C ${roundPathNumber(trunkX)} ${roundPathNumber((startY + target.y) / 2)}`,
+    `${roundPathNumber((trunkX + elbowX) / 2)} ${roundPathNumber(target.y)}`,
+    `${roundPathNumber(elbow.x)} ${roundPathNumber(elbow.y)}`,
+    curveSegment(elbow, target, direction)
+  ].join(" ");
+}
+
+function branchTrunkX(source: Point, targets: Point[], direction: Direction): number {
+  const nearestTargetX =
+    direction === "right"
+      ? Math.min(...targets.map((target) => target.x))
+      : Math.max(...targets.map((target) => target.x));
+  const gap = Math.abs(nearestTargetX - source.x);
+  const offset = Math.min(52, Math.max(24, gap * 0.55));
+  return direction === "right" ? nearestTargetX - offset : nearestTargetX + offset;
+}
+
+function roundPathNumber(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function isInteractivePanTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("input, button, textarea, select, a, [role='button']") !== null
+  );
 }
 
 function errorMessage(error: unknown): string {

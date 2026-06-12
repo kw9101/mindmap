@@ -38,6 +38,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 선택 모드 기반 키보드 이동
 - 키바인딩 도움말
 - Markdown subtree 클립보드 복사/붙여넣기
+- 캔버스 드래그 pan과 SQLite view state 저장
 - 기능별 unit test
 - Playwright 기반 e2e user-flow test
 
@@ -97,6 +98,8 @@ pnpm tauri dev
 - 선택 모드 `Enter`, `Space`, `F2`: 선택 노드 편집
 - 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
+- 빈 캔버스 드래그: 화면 pan
+- `Center`: pan 위치 초기화
 - `Cmd+Z`: undo
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
 - `Cmd+S`: 저장 또는 다른 이름 저장
@@ -105,8 +108,7 @@ pnpm tauri dev
 
 ## 다음 행동
 
-1. pan을 UI에 추가하고 SQLite view state에 연결한다.
-2. 명시적 정규화 명령을 추가한다.
-3. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
-4. 노드별 작은 점/핸들 hover UI를 추가한다.
-5. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. 명시적 정규화 명령을 추가한다.
+2. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
+3. 노드별 작은 점/핸들 hover UI를 추가한다.
+4. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

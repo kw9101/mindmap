@@ -9,6 +9,8 @@ export const viewStateKey = "view_state";
 export const minZoom = 0.5;
 export const maxZoom = 2;
 export const zoomStep = 0.1;
+const minPan = -20000;
+const maxPan = 20000;
 
 export function createDefaultViewState(selectedNodePath = ""): MindmapViewState {
   return {
@@ -46,11 +48,11 @@ export function parseViewState(value: string | null, fallbackPath = ""): Mindmap
       pan: {
         x:
           typeof parsed.pan?.x === "number" && Number.isFinite(parsed.pan.x)
-            ? parsed.pan.x
+            ? clampPanValue(parsed.pan.x)
             : 0,
         y:
           typeof parsed.pan?.y === "number" && Number.isFinite(parsed.pan.y)
-            ? parsed.pan.y
+            ? clampPanValue(parsed.pan.y)
             : 0
       }
     };
@@ -71,10 +73,29 @@ export function resetZoom(): number {
   return 1;
 }
 
+export function panBy(
+  currentPan: MindmapViewState["pan"],
+  deltaX: number,
+  deltaY: number
+): MindmapViewState["pan"] {
+  return {
+    x: clampPanValue(currentPan.x + deltaX),
+    y: clampPanValue(currentPan.y + deltaY)
+  };
+}
+
+export function resetPan(): MindmapViewState["pan"] {
+  return { x: 0, y: 0 };
+}
+
 export function formatZoom(zoom: number): string {
   return `${Math.round(clampZoom(zoom) * 100)}%`;
 }
 
 function clampZoom(zoom: number): number {
   return Math.round(Math.min(maxZoom, Math.max(minZoom, zoom)) * 100) / 100;
+}
+
+function clampPanValue(value: number): number {
+  return Math.round(Math.min(maxPan, Math.max(minPan, value)));
 }

@@ -266,10 +266,20 @@ kbd {
   min-height: 420px;
   overflow: auto;
   background: #f6f7f9;
+  cursor: grab;
+  touch-action: none;
+}
+
+.workspace-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .workspace {
   zoom: var(--workspace-zoom);
+  transform: translate(var(--workspace-pan-x), var(--workspace-pan-y));
+  transform-origin: center center;
+  position: relative;
   min-width: 100%;
   min-height: 420px;
   display: grid;
@@ -278,6 +288,25 @@ kbd {
   align-items: center;
   padding: 28px;
   overflow: auto;
+}
+
+.connector-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.connector-layer path {
+  fill: none;
+  stroke: #aeb8c4;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 
 .branch {
@@ -305,22 +334,7 @@ kbd {
 
 .root-node::before,
 .root-node::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  height: 1px;
-  background: #aeb8c4;
-  z-index: 0;
-}
-
-.workspace.has-left .root-node::before {
-  left: -24px;
-  right: 50%;
-}
-
-.workspace.has-right .root-node::after {
-  left: 50%;
-  right: -24px;
+  content: none;
 }
 
 .root-node input,
@@ -331,6 +345,7 @@ kbd {
   padding: 9px 11px;
   color: #202124;
   line-height: 1.35;
+  cursor: text;
 }
 
 .root-node input.selected,
@@ -411,48 +426,14 @@ kbd {
 .node-subtree.left > .child-column > .node-subtree::after,
 .branch-right .root-child-column > .node-subtree::before,
 .branch-left .root-child-column > .node-subtree::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 20px;
-  height: 1px;
-  background: #aeb8c4;
-}
-
-.node-subtree.right:has(> .child-column) > .node-row::after {
-  right: -20px;
-}
-
-.node-subtree.left:has(> .child-column) > .node-row::before {
-  left: -20px;
-}
-
-.node-subtree.right > .child-column > .node-subtree::before {
-  left: -20px;
-}
-
-.node-subtree.left > .child-column > .node-subtree::after {
-  right: -20px;
-}
-
-.branch-right .root-child-column > .node-subtree::before {
-  left: -20px;
-}
-
-.branch-left .root-child-column > .node-subtree::after {
-  right: -20px;
+  content: none;
 }
 
 .node-subtree.right > .child-column::before,
 .node-subtree.left > .child-column::before,
 .branch-right .root-child-column::before,
 .branch-left .root-child-column::before {
-  content: "";
-  position: absolute;
-  top: 18px;
-  bottom: 18px;
-  width: 1px;
-  background: #d3d9e1;
+  content: none;
 }
 
 .node-subtree.right > .child-column::before {

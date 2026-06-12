@@ -3,6 +3,8 @@ import {
   createDefaultViewState,
   formatZoom,
   parseViewState,
+  panBy,
+  resetPan,
   resetZoom,
   serializeViewState,
   zoomIn,
@@ -36,7 +38,7 @@ describe("view state", () => {
         selectedNodePath: "right/2",
         editingNodePath: null,
         zoom: 3,
-        pan: { x: 10, y: Number.NaN }
+        pan: { x: 30000.4, y: Number.NaN }
       }),
       "right/0"
     );
@@ -45,7 +47,7 @@ describe("view state", () => {
       selectedNodePath: "right/2",
       editingNodePath: null,
       zoom: 2,
-      pan: { x: 10, y: 0 }
+      pan: { x: 20000, y: 0 }
     });
   });
 
@@ -56,5 +58,14 @@ describe("view state", () => {
     expect(zoomOut(0.5)).toBe(0.5);
     expect(resetZoom()).toBe(1);
     expect(formatZoom(1.234)).toBe("123%");
+  });
+
+  it("changes pan in rounded clamped pixel deltas", () => {
+    expect(panBy({ x: 0, y: 0 }, 12.4, -8.6)).toEqual({ x: 12, y: -9 });
+    expect(panBy({ x: 19999, y: -19999 }, 20, -20)).toEqual({
+      x: 20000,
+      y: -20000
+    });
+    expect(resetPan()).toEqual({ x: 0, y: 0 });
   });
 });
