@@ -1099,7 +1099,9 @@ export function App() {
                   width={getRootInputWidth(mindmap!.title)}
                   ariaLabel="Root heading"
                   readOnly={!rootEditing}
+                  editOnClick={viewState.selectedNodePath === rootNodePath && !rootEditing}
                   onFocus={() => selectNode(rootNodePath, rootEditing)}
+                  onEditClick={() => selectNode(rootNodePath, true)}
                   onChange={(text) =>
                     commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
                   }
@@ -1206,7 +1208,9 @@ function NodeTextArea({
   width,
   ariaLabel,
   readOnly,
+  editOnClick,
   onFocus,
+  onEditClick,
   onChange,
   onBlur,
   onKeyDown
@@ -1217,12 +1221,15 @@ function NodeTextArea({
   width: number;
   ariaLabel: string;
   readOnly: boolean;
+  editOnClick: boolean;
   onFocus: () => void;
+  onEditClick: () => void;
   onChange: (text: string) => void;
   onBlur: (nextFocusedNode: FocusedNodeTarget | null) => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editOnClickRef = useRef(false);
 
   useLayoutEffect(() => {
     const textArea = textAreaRef.current;
@@ -1245,6 +1252,15 @@ function NodeTextArea({
       style={{ width }}
       aria-label={ariaLabel}
       readOnly={readOnly}
+      onMouseDown={() => {
+        editOnClickRef.current = editOnClick;
+      }}
+      onClick={() => {
+        if (editOnClickRef.current) {
+          onEditClick();
+        }
+        editOnClickRef.current = false;
+      }}
       onFocus={onFocus}
       onChange={(event) => onChange(toSingleLineNodeText(event.target.value))}
       onBlur={(event) => onBlur(nodeTargetFromRelatedTarget(event))}
@@ -1326,7 +1342,9 @@ function NodeEditor({
           width={getNodeInputWidth(node.text)}
           ariaLabel={`Node ${node.path}`}
           readOnly={!editing}
+          editOnClick={selected && !editing}
           onFocus={() => onSelect(node.path, editing)}
+          onEditClick={() => onSelect(node.path, true)}
           onChange={(text) => onTextChange(node.path, text)}
           onBlur={(nextFocusedPath) => {
             if (node.text.length === 0 && node.children.length === 0) {
@@ -1635,13 +1653,17 @@ function spatialNodePath(
     return currentPath;
   }
 
+  if (direction === "left" || direction === "right") {
+    return horizontalGenerationNodePath(workspace, currentPath, direction);
+  }
+
   const currentElement = nodeElement(workspace, currentPath);
   if (!currentElement) {
     return currentPath;
   }
 
   const currentRect = currentElement.getBoundingClientRect();
-  const currentCenter = rectCenter(currentRect);
+  const currentAnchor = navigationAnchor(currentPath, currentRect);
   let bestCandidate: { path: string; score: number } | null = null;
 
   const nodeElements = Array.from(
@@ -1654,10 +1676,10 @@ function spatialNodePath(
     }
 
     const candidateRect = candidate.getBoundingClientRect();
-    const candidateCenter = rectCenter(candidateRect);
+    const candidateAnchor = navigationAnchor(candidatePath, candidateRect);
     const primaryDistance = directionalDistance(
-      currentCenter,
-      candidateCenter,
+      currentAnchor,
+      candidateAnchor,
       direction
     );
     if (primaryDistance <= 1) {
@@ -1665,15 +1687,15 @@ function spatialNodePath(
     }
 
     const secondaryDistance = perpendicularDistance(
-      currentCenter,
-      candidateCenter,
+      currentAnchor,
+      candidateAnchor,
       direction
     );
-    const crossesCurrentBeam = perpendicularOverlap(currentRect, candidateRect, direction) > 0;
+    const staysInLane = secondaryDistance <= 8;
     const score =
       primaryDistance +
-      secondaryDistance * (crossesCurrentBeam ? 2 : 6) +
-      (crossesCurrentBeam ? 0 : 1000);
+      secondaryDistance * (staysInLane ? 2 : 8) +
+      (staysInLane ? 0 : 1000);
 
     if (!bestCandidate || score < bestCandidate.score) {
       bestCandidate = { path: candidatePath, score };
@@ -1683,10 +1705,148 @@ function spatialNodePath(
   return bestCandidate?.path ?? currentPath;
 }
 
-function rectCenter(rect: DOMRect): { x: number; y: number } {
+function horizontalGenerationNodePath(
+  workspace: HTMLElement,
+  currentPath: string,
+  direction: "left" | "right"
+): string {
+  const currentElement = nodeElement(workspace, currentPath);
+  if (!currentElement) {
+    return currentPath;
+  }
+
+  const currentSide = nodeSide(currentPath);
+  if (!currentSide) {
+    return bestHorizontalCandidate(
+      workspace,
+      currentPath,
+      direction,
+      nodeElementsForPaths(workspace, (path) => isRootLevelPath(path, direction))
+    );
+  }
+
+  if (direction !== currentSide) {
+    const parentPath = parentPathFromNodePath(currentPath);
+    return nodeElement(workspace, parentPath) ? parentPath : currentPath;
+  }
+
+  return bestHorizontalCandidate(
+    workspace,
+    currentPath,
+    direction,
+    nodeElementsForPaths(workspace, (path) => isImmediateChildPath(path, currentPath))
+  );
+}
+
+function bestHorizontalCandidate(
+  workspace: HTMLElement,
+  currentPath: string,
+  direction: "left" | "right",
+  candidates: HTMLElement[]
+): string {
+  const currentElement = nodeElement(workspace, currentPath);
+  if (!currentElement) {
+    return currentPath;
+  }
+
+  const currentAnchor = navigationAnchor(
+    currentPath,
+    currentElement.getBoundingClientRect()
+  );
+  let bestCandidate: { path: string; score: number } | null = null;
+
+  for (const candidate of candidates) {
+    const candidatePath = candidate.dataset.nodePath;
+    if (!candidatePath || candidatePath === currentPath) {
+      continue;
+    }
+
+    const candidateAnchor = navigationAnchor(
+      candidatePath,
+      candidate.getBoundingClientRect()
+    );
+    const primaryDistance = directionalDistance(
+      currentAnchor,
+      candidateAnchor,
+      direction
+    );
+    if (primaryDistance <= 1) {
+      continue;
+    }
+
+    const secondaryDistance = perpendicularDistance(
+      currentAnchor,
+      candidateAnchor,
+      direction
+    );
+    const score = primaryDistance + secondaryDistance * 8;
+
+    if (!bestCandidate || score < bestCandidate.score) {
+      bestCandidate = { path: candidatePath, score };
+    }
+  }
+
+  return bestCandidate?.path ?? currentPath;
+}
+
+function nodeElementsForPaths(
+  workspace: HTMLElement,
+  matchesPath: (path: string) => boolean
+): HTMLElement[] {
+  return Array.from(workspace.querySelectorAll<HTMLElement>("[data-node-path]")).filter(
+    (element) => {
+      const path = element.dataset.nodePath;
+      return path ? matchesPath(path) : false;
+    }
+  );
+}
+
+function nodeSide(path: string): "left" | "right" | null {
+  if (path.startsWith("left/")) {
+    return "left";
+  }
+
+  if (path.startsWith("right/")) {
+    return "right";
+  }
+
+  return null;
+}
+
+function isRootLevelPath(path: string, side: "left" | "right"): boolean {
+  return path.startsWith(`${side}/`) && path.split("/").length === 2;
+}
+
+function isImmediateChildPath(path: string, parentPath: string): boolean {
+  return (
+    path.startsWith(`${parentPath}/`) &&
+    path.split("/").length === parentPath.split("/").length + 1
+  );
+}
+
+function parentPathFromNodePath(path: string): string {
+  const parts = path.split("/");
+  return parts.length <= 2 ? rootNodePath : parts.slice(0, -1).join("/");
+}
+
+function navigationAnchor(path: string, rect: DOMRect): { x: number; y: number } {
+  if (path.startsWith("left/")) {
+    return {
+      x: rect.right,
+      y: rect.top
+    };
+  }
+
+  if (path.startsWith("right/")) {
+    return {
+      x: rect.left,
+      y: rect.top
+    };
+  }
+
   return {
     x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2
+    y: rect.top
   };
 }
 
@@ -1718,27 +1878,6 @@ function perpendicularDistance(
   return direction === "left" || direction === "right"
     ? Math.abs(target.y - origin.y)
     : Math.abs(target.x - origin.x);
-}
-
-function perpendicularOverlap(
-  origin: DOMRect,
-  target: DOMRect,
-  direction: SpatialDirection
-): number {
-  if (direction === "left" || direction === "right") {
-    return rangeOverlap(origin.top, origin.bottom, target.top, target.bottom);
-  }
-
-  return rangeOverlap(origin.left, origin.right, target.left, target.right);
-}
-
-function rangeOverlap(
-  firstStart: number,
-  firstEnd: number,
-  secondStart: number,
-  secondEnd: number
-): number {
-  return Math.max(0, Math.min(firstEnd, secondEnd) - Math.max(firstStart, secondStart));
 }
 
 function buildConnectorPaths(

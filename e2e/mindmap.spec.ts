@@ -204,7 +204,7 @@ test("shortcut help keeps question mark editable and opens from selection mode",
   await expect(page.getByRole("dialog", { name: "키바인딩" })).toBeVisible();
 });
 
-test("mouse click selects a node without entering editing", async ({ page }) => {
+test("mouse click selects a node and a second click starts editing", async ({ page }) => {
   const first = nodeInput(page, "right/0");
   await first.fill("A");
   await first.press("Enter");
@@ -218,7 +218,7 @@ test("mouse click selects a node without entering editing", async ({ page }) => 
   await page.keyboard.type("X");
   await expect(first).toHaveValue("A");
 
-  await page.keyboard.press("Enter");
+  await first.click();
   await expect(first).not.toHaveAttribute("readonly", "");
   await page.keyboard.press("End");
   await page.keyboard.type("X");
@@ -321,6 +321,60 @@ test("ArrowDown moves to the nearest lower visible node", async ({
 
   await expect(parent).toHaveClass(/selected/);
   await expect(nodeInput(page, "right/1")).not.toHaveClass(/selected/);
+});
+
+test("ArrowUp keeps child-column focus in the same visual lane", async ({
+  page
+}) => {
+  const parentA = nodeInput(page, "right/0");
+  await parentA.fill("A");
+  await parentA.press("Tab");
+  const childA = nodeInput(page, "right/0/0");
+  await expect(childA).toBeFocused();
+  await childA.fill("A-1");
+
+  await childA.press("Shift+Tab");
+  await parentA.press("Enter");
+  const parentB = nodeInput(page, "right/1");
+  await expect(parentB).toBeFocused();
+  await parentB.fill("B");
+  await parentB.press("Tab");
+  const childB = nodeInput(page, "right/1/0");
+  await expect(childB).toBeFocused();
+  await childB.fill("B-1");
+  await childB.press("Escape");
+
+  await page.keyboard.press("ArrowUp");
+
+  await expect(childA).toHaveClass(/selected/);
+  await expect(parentA).not.toHaveClass(/selected/);
+  await expect(parentB).not.toHaveClass(/selected/);
+});
+
+test("horizontal arrows move one generation at a time", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+
+  const child = nodeInput(page, "right/0/0");
+  await expect(child).toBeFocused();
+  await child.fill("Child");
+  await child.press("Tab");
+
+  const grandchild = nodeInput(page, "right/0/0/0");
+  await expect(grandchild).toBeFocused();
+  await grandchild.fill("Grandchild");
+
+  await parent.focus();
+  await parent.press("Escape");
+  await page.keyboard.press("ArrowRight");
+
+  await expect(child).toHaveClass(/selected/);
+  await expect(grandchild).not.toHaveClass(/selected/);
+
+  await page.keyboard.press("ArrowRight");
+
+  await expect(grandchild).toHaveClass(/selected/);
 });
 
 test("Tab while editing creates a child node instead of indenting under a sibling", async ({

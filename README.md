@@ -95,7 +95,7 @@ pnpm tauri dev
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
 - `Esc`: 편집 모드에서 선택 모드로 전환. 빈 일반 노드에서는 해당 노드 삭제
 - 선택 모드 `ArrowUp` / `ArrowDown`: 화면상 위/아래에 있는 가장 가까운 노드 선택
-- 선택 모드 `ArrowLeft` / `ArrowRight`: 화면상 왼쪽/오른쪽에 있는 가장 가까운 노드 선택
+- 선택 모드 `ArrowLeft` / `ArrowRight`: 화면상 왼쪽/오른쪽으로 한 세대씩 이동
 - 선택 모드 `Enter`: 선택 노드 편집
 - 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
