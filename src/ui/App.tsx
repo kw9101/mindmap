@@ -70,6 +70,7 @@ import {
   writeMarkdownFileAtomic,
   type DiffFiles
 } from "../platform/native";
+import { isImeComposing } from "./keyboard";
 import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
 const autosaveDelayMs = 700;
@@ -514,6 +515,10 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isImeComposing(event)) {
+        return;
+      }
+
       const key = event.key.toLowerCase();
       const editing = viewState.editingNodePath !== null;
       if ((event.metaKey || event.ctrlKey) && key === "s") {
@@ -910,6 +915,10 @@ function NodeEditor({
           onFocus={() => onSelect(node.path)}
           onChange={(event) => onTextChange(node.path, event.target.value)}
           onKeyDown={(event) => {
+            if (isImeComposing(event)) {
+              return;
+            }
+
             if (event.key === "Enter") {
               event.preventDefault();
               onAddSibling(node.path);
