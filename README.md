@@ -108,5 +108,5 @@ pnpm tauri dev
 1. pan을 UI에 추가하고 SQLite view state에 연결한다.
 2. 명시적 정규화 명령을 추가한다.
 3. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
-4. 노드별 상시 액션 버튼을 작은 점/핸들 hover UI로 바꾼다.
+4. 노드별 작은 점/핸들 hover UI를 추가한다.
 5. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

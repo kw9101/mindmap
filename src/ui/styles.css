@@ -367,19 +367,6 @@ kbd {
   flex-direction: row-reverse;
 }
 
-.node-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.node-actions button {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 7px;
-  font-size: 12px;
-}
-
 .child-column {
   display: flex;
   flex-direction: column;

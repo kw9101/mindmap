@@ -59,6 +59,12 @@ test("zoom controls can zoom in and reset", async ({ page }) => {
   await expect(resetZoomButton).toHaveText("100%");
 });
 
+test("node action buttons are not shown inline", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "Add child node" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add sibling node" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Delete node" })).toHaveCount(0);
+});
+
 test("keyboard shortcut help opens from the toolbar and closes with Escape", async ({
   page
 }) => {

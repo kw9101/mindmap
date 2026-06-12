@@ -1093,32 +1093,6 @@ function NodeEditor({
             }
           }}
         />
-        <div className="node-actions">
-          <button
-            type="button"
-            aria-label="Add child node"
-            title="Add child node"
-            onClick={() => onAddChild(node.path)}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            aria-label="Add sibling node"
-            title="Add sibling node"
-            onClick={() => onAddSibling(node.path)}
-          >
-            S
-          </button>
-          <button
-            type="button"
-            aria-label="Delete node"
-            title="Delete node"
-            onClick={() => onDelete(node.path)}
-          >
-            Del
-          </button>
-        </div>
       </div>
       {side === "right" && children}
     </div>
