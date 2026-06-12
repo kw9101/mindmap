@@ -1,5 +1,7 @@
 import type { Direction, Mindmap, MindmapNode } from "./model";
 
+export const rootNodePath = "root";
+
 export type NodeLocation = {
   node: MindmapNode;
   parent: MindmapNode | null;
@@ -188,6 +190,10 @@ export function findNode(mindmap: Mindmap, path: string): MindmapNode | null {
   return findNodeLocation(mindmap, path)?.node ?? null;
 }
 
+export function isRootNodePath(path: string): boolean {
+  return path === rootNodePath;
+}
+
 export function flattenNodes(mindmap: Mindmap): MindmapNode[] {
   const nodes: MindmapNode[] = [];
   for (const root of mindmap.children) {
@@ -198,6 +204,10 @@ export function flattenNodes(mindmap: Mindmap): MindmapNode[] {
 
 export function nextNodePath(mindmap: Mindmap, path: string): string {
   const nodes = flattenNodes(mindmap);
+  if (isRootNodePath(path)) {
+    return nodes[0]?.path ?? rootNodePath;
+  }
+
   const index = nodes.findIndex((node) => node.path === path);
   if (index === -1 || nodes.length === 0) {
     return nodes[0]?.path ?? "";
@@ -208,20 +218,32 @@ export function nextNodePath(mindmap: Mindmap, path: string): string {
 
 export function previousNodePath(mindmap: Mindmap, path: string): string {
   const nodes = flattenNodes(mindmap);
+  if (isRootNodePath(path)) {
+    return rootNodePath;
+  }
+
   const index = nodes.findIndex((node) => node.path === path);
   if (index === -1 || nodes.length === 0) {
     return nodes[0]?.path ?? "";
   }
 
-  return nodes[Math.max(index - 1, 0)].path;
+  return index === 0 ? rootNodePath : nodes[index - 1].path;
 }
 
 export function parentNodePath(mindmap: Mindmap, path: string): string {
+  if (isRootNodePath(path)) {
+    return rootNodePath;
+  }
+
   const location = findNodeLocation(mindmap, path);
-  return location?.parent?.path ?? path;
+  return location?.parent?.path ?? (location ? rootNodePath : path);
 }
 
 export function firstChildNodePath(mindmap: Mindmap, path: string): string {
+  if (isRootNodePath(path)) {
+    return firstNodePath(mindmap) || rootNodePath;
+  }
+
   const node = findNode(mindmap, path);
   return node?.children[0]?.path ?? path;
 }

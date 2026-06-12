@@ -14,8 +14,11 @@ import {
   insertSiblingNodes,
   moveNodeDown,
   moveNodeUp,
+  nextNodePath,
   outdentNode,
   parentNodePath,
+  previousNodePath,
+  rootNodePath,
   updateNodeText
 } from "./tree";
 
@@ -175,9 +178,14 @@ describe("mindmap tree commands", () => {
 `);
 
     expect(parentNodePath(mindmap, "right/0/0")).toBe("right/0");
-    expect(parentNodePath(mindmap, "right/0")).toBe("right/0");
+    expect(parentNodePath(mindmap, "right/0")).toBe(rootNodePath);
+    expect(parentNodePath(mindmap, rootNodePath)).toBe(rootNodePath);
     expect(firstChildNodePath(mindmap, "right/0")).toBe("right/0/0");
     expect(firstChildNodePath(mindmap, "right/0/0")).toBe("right/0/0");
+    expect(firstChildNodePath(mindmap, rootNodePath)).toBe("right/0");
+    expect(previousNodePath(mindmap, "right/0")).toBe(rootNodePath);
+    expect(previousNodePath(mindmap, rootNodePath)).toBe(rootNodePath);
+    expect(nextNodePath(mindmap, rootNodePath)).toBe("right/0");
   });
 
   it("inserts copied nodes as siblings or children with inherited direction", () => {

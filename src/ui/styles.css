@@ -221,6 +221,7 @@ button:disabled:hover {
   line-height: 1.35;
 }
 
+.root-node input.selected,
 .node-input.selected {
   border-color: #4d88ff;
   box-shadow: 0 0 0 3px #dce8ff;

@@ -36,12 +36,14 @@ import {
   firstNodePath,
   indentNode,
   insertSiblingNodes,
+  isRootNodePath,
   moveNodeDown,
   moveNodeUp,
   nextNodePath,
   outdentNode,
   parentNodePath,
   previousNodePath,
+  rootNodePath,
   updateNodeText,
   updateRootTitle
 } from "../core/tree";
@@ -95,6 +97,10 @@ export function App() {
   const nativeAvailable = isNativeAvailable();
   const fileName = activeDocument.file?.name ?? "untitled.md";
   const status = statusLabel(activeDocument, nativeAvailable);
+  const selectedDocumentNode =
+    mindmap && !isRootNodePath(viewState.selectedNodePath)
+      ? findNode(mindmap, viewState.selectedNodePath)
+      : null;
 
   const replaceDocument = useCallback((nextDocument: DocumentState, label: string) => {
     setHistory((current) => replacePresent(current, nextDocument, label));
@@ -268,47 +274,37 @@ export function App() {
   }, []);
 
   const handleCopySubtree = useCallback(async () => {
-    if (!mindmap || !viewState.selectedNodePath) {
-      return;
-    }
-
-    const node = findNode(mindmap, viewState.selectedNodePath);
-    if (!node) {
+    if (!mindmap || !selectedDocumentNode) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(serializeNodeForClipboard(node));
+      await navigator.clipboard.writeText(serializeNodeForClipboard(selectedDocumentNode));
       setNotice("선택한 노드를 Markdown 목록으로 복사했습니다.");
     } catch (error) {
       setNotice(`클립보드에 쓸 수 없습니다: ${errorMessage(error)}`);
     }
-  }, [mindmap, viewState.selectedNodePath]);
+  }, [mindmap, selectedDocumentNode]);
 
   const handlePasteSubtree = useCallback(async () => {
-    if (!mindmap || !viewState.selectedNodePath) {
-      return;
-    }
-
-    const target = findNode(mindmap, viewState.selectedNodePath);
-    if (!target) {
+    if (!mindmap || !selectedDocumentNode) {
       return;
     }
 
     try {
       const text = await navigator.clipboard.readText();
-      const parsed = parseClipboardNodes(text, target.direction);
+      const parsed = parseClipboardNodes(text, selectedDocumentNode.direction);
       if (!parsed.ok) {
         setNotice(`붙여넣기 Markdown을 읽을 수 없습니다: ${parsed.diagnostics[0].code}`);
         return;
       }
 
-      const next = insertSiblingNodes(mindmap, target.path, parsed.nodes);
-      commitMindmap(next, "Paste nodes", nextNodePath(next, target.path));
+      const next = insertSiblingNodes(mindmap, selectedDocumentNode.path, parsed.nodes);
+      commitMindmap(next, "Paste nodes", nextNodePath(next, selectedDocumentNode.path));
     } catch (error) {
       setNotice(`클립보드에서 읽을 수 없습니다: ${errorMessage(error)}`);
     }
-  }, [commitMindmap, mindmap, viewState.selectedNodePath]);
+  }, [commitMindmap, mindmap, selectedDocumentNode]);
 
   const handlePrepareDiff = useCallback(async () => {
     if (!activeDocument.file || !activeDocument.conflict) {
@@ -491,7 +487,10 @@ export function App() {
       return;
     }
 
-    if (viewState.selectedNodePath && findNode(mindmap, viewState.selectedNodePath)) {
+    if (
+      isRootNodePath(viewState.selectedNodePath) ||
+      (viewState.selectedNodePath && findNode(mindmap, viewState.selectedNodePath))
+    ) {
       return;
     }
 
@@ -568,6 +567,11 @@ export function App() {
           event.preventDefault();
           selectNode(viewState.selectedNodePath, true);
         } else if (event.key === "Tab") {
+          if (isRootNodePath(viewState.selectedNodePath)) {
+            event.preventDefault();
+            return;
+          }
+
           event.preventDefault();
           const next = event.shiftKey
             ? outdentNode(mindmap, viewState.selectedNodePath)
@@ -578,6 +582,11 @@ export function App() {
             remapPathAfterTextMatch(next, viewState.selectedNodePath)
           );
         } else if (event.key === "Backspace" || event.key === "Delete") {
+          if (isRootNodePath(viewState.selectedNodePath)) {
+            event.preventDefault();
+            return;
+          }
+
           event.preventDefault();
           const fallback = previousNodePath(mindmap, viewState.selectedNodePath);
           const next = deleteNode(mindmap, viewState.selectedNodePath);
@@ -683,14 +692,14 @@ export function App() {
           <button
             type="button"
             onClick={handleCopySubtree}
-            disabled={!mindmap || !viewState.selectedNodePath}
+            disabled={!mindmap || !selectedDocumentNode}
           >
             Copy
           </button>
           <button
             type="button"
             onClick={handlePasteSubtree}
-            disabled={!mindmap || !viewState.selectedNodePath}
+            disabled={!mindmap || !selectedDocumentNode}
           >
             Paste
           </button>
@@ -810,15 +819,29 @@ export function App() {
 
               <section className="root-node" aria-label="Root node">
                 <input
+                  className={viewState.selectedNodePath === rootNodePath ? "selected" : ""}
+                  data-node-path={rootNodePath}
                   value={mindmap!.title}
                   style={{ width: getRootInputWidth(mindmap!.title) }}
                   aria-label="Root heading"
+                  onFocus={() => selectNode(rootNodePath, true)}
                   onChange={(event) =>
                     commitMindmap(
                       updateRootTitle(mindmap!, event.target.value),
                       "Edit root heading"
                     )
                   }
+                  onKeyDown={(event) => {
+                    if (isImeComposing(event)) {
+                      return;
+                    }
+
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      selectNode(rootNodePath, false);
+                      event.currentTarget.blur();
+                    }
+                  }}
                 />
               </section>
 
