@@ -99,6 +99,8 @@ pnpm tauri dev
 - 선택 모드 `ArrowUp` / `ArrowDown`: 화면상 위/아래에 있는 가장 가까운 노드 선택
 - 선택 모드 `ArrowLeft` / `ArrowRight`: 화면상 왼쪽/오른쪽으로 한 세대씩 이동
 - 선택 모드 `Enter`: 선택 노드 편집
+- 선택 모드 `Tab`: 첫 자식 노드 선택, 없으면 자식 노드 생성
+- 선택 모드 `Shift+Tab`: 부모 노드 선택
 - 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - 빈 캔버스 드래그: 화면 pan

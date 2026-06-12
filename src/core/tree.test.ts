@@ -284,6 +284,72 @@ describe("mindmap tree commands", () => {
 `);
   });
 
+  it("keeps root siblings scoped to their direction after moving across branches", () => {
+    const moved = moveNodeTo(
+      parse(`# Map
+
+- A
+- B
+`),
+      "right/1",
+      rootNodePath,
+      "inside",
+      "left"
+    );
+    expect(moved).not.toBeNull();
+    const mindmap = moved!.mindmap;
+
+    expect(nextSiblingNodePath(mindmap, "right/0")).toBe("right/0");
+    expect(previousSiblingNodePath(mindmap, "left/0")).toBe("left/0");
+
+    const withRightSibling = addSiblingNode(mindmap, "right/0");
+    expect(nextSiblingNodePath(withRightSibling, "right/0")).toBe("right/1");
+    expect(serializeMindmap(withRightSibling)).toBe(`# Map
+
+## Right
+
+- A
+-
+
+## Left
+
+- B
+`);
+  });
+
+  it("moves root nodes up and down only within the same branch direction", () => {
+    const mindmap = parse(`# Map
+
+## Right
+
+- A
+- B
+
+## Left
+
+- L
+`);
+
+    expect(serializeMindmap(moveNodeDown(mindmap, "right/1"))).toBe(
+      serializeMindmap(mindmap)
+    );
+    expect(serializeMindmap(moveNodeUp(mindmap, "left/0"))).toBe(
+      serializeMindmap(mindmap)
+    );
+
+    expect(serializeMindmap(moveNodeUp(mindmap, "right/1"))).toBe(`# Map
+
+## Right
+
+- B
+- A
+
+## Left
+
+- L
+`);
+  });
+
   it("does not move a node into itself or its descendants", () => {
     const mindmap = parse(`# Map
 

@@ -112,11 +112,18 @@ export function deleteNode(mindmap: Mindmap, path: string): Mindmap {
 export function indentNode(mindmap: Mindmap, path: string): Mindmap {
   const next = cloneMindmap(mindmap);
   const location = findNodeLocation(next, path);
-  if (!location || location.index === 0) {
+  if (!location) {
     return mindmap;
   }
 
-  const previousSibling = location.siblings[location.index - 1];
+  const previousSibling =
+    location.parent === null
+      ? directionalSibling(location, -1)
+      : location.siblings[location.index - 1];
+  if (!previousSibling) {
+    return mindmap;
+  }
+
   const [node] = location.siblings.splice(location.index, 1);
   setSubtreeDirection(node, previousSibling.direction);
   previousSibling.children.push(node);
@@ -144,22 +151,38 @@ export function outdentNode(mindmap: Mindmap, path: string): Mindmap {
 export function moveNodeUp(mindmap: Mindmap, path: string): Mindmap {
   const next = cloneMindmap(mindmap);
   const location = findNodeLocation(next, path);
-  if (!location || location.index === 0) {
+  if (!location) {
     return mindmap;
   }
 
-  swap(location.siblings, location.index, location.index - 1);
+  const previousIndex =
+    location.parent === null
+      ? directionalSiblingIndex(location, -1)
+      : location.index - 1;
+  if (previousIndex === null || previousIndex < 0) {
+    return mindmap;
+  }
+
+  swap(location.siblings, location.index, previousIndex);
   return normalizeMindmap(next);
 }
 
 export function moveNodeDown(mindmap: Mindmap, path: string): Mindmap {
   const next = cloneMindmap(mindmap);
   const location = findNodeLocation(next, path);
-  if (!location || location.index >= location.siblings.length - 1) {
+  if (!location) {
     return mindmap;
   }
 
-  swap(location.siblings, location.index, location.index + 1);
+  const nextIndex =
+    location.parent === null
+      ? directionalSiblingIndex(location, 1)
+      : location.index + 1;
+  if (nextIndex === null || nextIndex >= location.siblings.length) {
+    return mindmap;
+  }
+
+  swap(location.siblings, location.index, nextIndex);
   return normalizeMindmap(next);
 }
 
@@ -299,7 +322,11 @@ export function nextSiblingNodePath(mindmap: Mindmap, path: string): string {
     return path;
   }
 
-  return location.siblings[location.index + 1]?.path ?? path;
+  const sibling =
+    location.parent === null
+      ? directionalSibling(location, 1)
+      : location.siblings[location.index + 1];
+  return sibling?.path ?? path;
 }
 
 export function previousSiblingNodePath(mindmap: Mindmap, path: string): string {
@@ -308,7 +335,11 @@ export function previousSiblingNodePath(mindmap: Mindmap, path: string): string 
     return path;
   }
 
-  return location.siblings[location.index - 1]?.path ?? path;
+  const sibling =
+    location.parent === null
+      ? directionalSibling(location, -1)
+      : location.siblings[location.index - 1];
+  return sibling?.path ?? path;
 }
 
 export function previousNodePath(mindmap: Mindmap, path: string): string {
@@ -419,6 +450,28 @@ function setSubtreeDirection(node: MindmapNode, direction: Direction): void {
   for (const child of node.children) {
     setSubtreeDirection(child, direction);
   }
+}
+
+function directionalSibling(
+  location: NodeLocation,
+  step: -1 | 1
+): MindmapNode | null {
+  const index = directionalSiblingIndex(location, step);
+  return index === null ? null : location.siblings[index] ?? null;
+}
+
+function directionalSiblingIndex(location: NodeLocation, step: -1 | 1): number | null {
+  for (
+    let index = location.index + step;
+    index >= 0 && index < location.siblings.length;
+    index += step
+  ) {
+    if (location.siblings[index].direction === location.node.direction) {
+      return index;
+    }
+  }
+
+  return null;
 }
 
 function pathForNode(mindmap: Mindmap, target: MindmapNode): string | null {

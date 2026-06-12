@@ -169,6 +169,8 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "ArrowUp/Down", action: "화면상 위/아래 노드 선택" },
       { keys: "ArrowLeft/Right", action: "화면상 왼쪽/오른쪽 노드 선택" },
       { keys: "Enter", action: "편집 시작" },
+      { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
+      { keys: "Shift+Tab", action: "부모 노드 선택" },
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
       { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
@@ -991,6 +993,41 @@ export function App() {
           selectNode(
             spatialNodePath(workspaceRef.current, viewState.selectedNodePath, spatialDirection),
             false
+          );
+        } else if (
+          event.key === "Tab" &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+          if (event.shiftKey) {
+            selectNode(parentNodePath(mindmap, viewState.selectedNodePath), false);
+            return;
+          }
+
+          if (isRootNodePath(viewState.selectedNodePath)) {
+            const childPath = firstNodePath(mindmap);
+            if (childPath) {
+              selectNode(childPath, false);
+            }
+            return;
+          }
+
+          const childPath = firstChildPathForExistingNode(
+            mindmap,
+            viewState.selectedNodePath
+          );
+          if (childPath) {
+            selectNode(childPath, false);
+            return;
+          }
+
+          const next = addChildNode(mindmap, viewState.selectedNodePath);
+          commitMindmap(
+            next,
+            "Add child node",
+            lastChildPath(next, viewState.selectedNodePath)
           );
         } else if (event.key === "Enter") {
           event.preventDefault();

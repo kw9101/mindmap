@@ -372,6 +372,29 @@ test("mouse drag onto the root moves a node to the left branch", async ({ page }
   );
 });
 
+test("Enter on the remaining right root node creates a right sibling after dragging another node left", async ({
+  page
+}) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  await dragNodeTo(page, "right/1", "root", "inside", "left");
+
+  const remainingRight = nodeInput(page, "right/0");
+  await remainingRight.click();
+  await remainingRight.press("Enter");
+  await remainingRight.press("Enter");
+
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(nodeInput(page, "left/0")).not.toBeFocused();
+  await expect(markdownOutput(page)).toHaveText(
+    "#\n\n## Right\n\n- A\n-\n\n## Left\n\n- B\n"
+  );
+});
+
 test("arrow navigation can move between the first node and the root", async ({ page }) => {
   const root = page.getByLabel("Root heading");
   const firstNode = page.locator(".node-input");
@@ -438,6 +461,36 @@ test("selection mode Enter starts editing without moving nodes", async ({ page }
 
   await expect(parent).toHaveValue("Parent!");
   await expect(markdownOutput(page)).toHaveText("#\n\n- Parent!\n  - Child\n");
+});
+
+test("selection mode Tab stays in the app and creates or selects child nodes", async ({
+  page
+}) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Escape");
+
+  await page.keyboard.press("Tab");
+
+  const child = nodeInput(page, "right/0/0");
+  await expect(child).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent\n  -\n");
+
+  await child.fill("Child");
+  await child.press("Shift+Tab");
+  await expect(parent).toBeFocused();
+  await parent.press("Escape");
+
+  await page.keyboard.press("Tab");
+
+  await expect(child).toHaveClass(/selected/);
+  await expect(child).toHaveAttribute("readonly", "");
+  await expect(page.getByRole("button", { name: "Open" })).not.toBeFocused();
+
+  await page.keyboard.press("Shift+Tab");
+
+  await expect(parent).toHaveClass(/selected/);
+  await expect(child).not.toHaveClass(/selected/);
 });
 
 test("ArrowDown moves to the nearest lower visible node", async ({
