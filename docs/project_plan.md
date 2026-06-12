@@ -634,7 +634,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - 선택 모드를 추가했다. Esc로 편집 모드에서 빠져나오고, 선택 모드에서 ArrowUp/Down/Left/Right로 이전/다음/부모/첫 자식 노드를 선택한다.
 - 클립보드 subtree 복사/붙여넣기를 추가했다. 복사 내용은 앱 전용 메타데이터 없이 Markdown 목록 텍스트만 사용한다.
 - 노드 옆에 상시 노출되던 `+`, `S`, `Del` 액션 버튼을 제거했다. 자식 추가, 형제 추가, 삭제는 키보드 단축키로 수행한다.
-- 검증: Vitest 55개 통과, Playwright e2e 15개 통과, TypeScript check 통과, Vite production build 통과.
+- 검증: Vitest 56개 통과, Playwright e2e 16개 통과, TypeScript check 통과, Vite production build 통과.
 
 ## 17. 남은 구현 후보
 

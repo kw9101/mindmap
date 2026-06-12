@@ -125,6 +125,20 @@ test("Tab while editing creates a child node instead of indenting under a siblin
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n");
 });
 
+test("Enter on a node with children focuses the new sibling", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+
+  await parent.focus();
+  await parent.press("Tab");
+  await expect(nodeInput(page, "right/0/0")).toBeFocused();
+
+  await parent.focus();
+  await parent.press("Enter");
+
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n-\n");
+});
+
 test("a child node is laid out to the right of its parent", async ({ page }) => {
   const parent = page.locator('.node-input[data-node-path="right/0"]');
 

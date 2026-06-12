@@ -216,6 +216,15 @@ export function nextNodePath(mindmap: Mindmap, path: string): string {
   return nodes[Math.min(index + 1, nodes.length - 1)].path;
 }
 
+export function nextSiblingNodePath(mindmap: Mindmap, path: string): string {
+  const location = findNodeLocation(mindmap, path);
+  if (!location) {
+    return path;
+  }
+
+  return location.siblings[location.index + 1]?.path ?? path;
+}
+
 export function previousNodePath(mindmap: Mindmap, path: string): string {
   const nodes = flattenNodes(mindmap);
   if (isRootNodePath(path)) {

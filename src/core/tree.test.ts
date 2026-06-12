@@ -15,6 +15,7 @@ import {
   moveNodeDown,
   moveNodeUp,
   nextNodePath,
+  nextSiblingNodePath,
   outdentNode,
   parentNodePath,
   previousNodePath,
@@ -96,6 +97,19 @@ describe("mindmap tree commands", () => {
 - A
 - B
 `);
+  });
+
+  it("finds the inserted sibling instead of the first child", () => {
+    let mindmap = parse(`# Map
+
+- A
+  - A-1
+`);
+
+    mindmap = addSiblingNode(mindmap, "right/0");
+
+    expect(nextNodePath(mindmap, "right/0")).toBe("right/0/0");
+    expect(nextSiblingNodePath(mindmap, "right/0")).toBe("right/1");
   });
 
   it("indents a node under its previous sibling", () => {

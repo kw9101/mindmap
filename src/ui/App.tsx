@@ -40,6 +40,7 @@ import {
   moveNodeDown,
   moveNodeUp,
   nextNodePath,
+  nextSiblingNodePath,
   outdentNode,
   parentNodePath,
   previousNodePath,
@@ -349,7 +350,7 @@ export function App() {
       }
 
       const next = insertSiblingNodes(mindmap, selectedDocumentNode.path, parsed.nodes);
-      commitMindmap(next, "Paste nodes", nextNodePath(next, selectedDocumentNode.path));
+      commitMindmap(next, "Paste nodes", nextSiblingNodePath(next, selectedDocumentNode.path));
     } catch (error) {
       setNotice(`클립보드에서 읽을 수 없습니다: ${errorMessage(error)}`);
     }
@@ -715,7 +716,7 @@ export function App() {
       }}
       onAddSibling={(path) => {
         const next = addSiblingNode(mindmap!, path);
-        commitMindmap(next, "Add sibling node", nextNodePath(next, path));
+        commitMindmap(next, "Add sibling node", nextSiblingNodePath(next, path));
       }}
       onDelete={(path) => {
         const fallback = previousNodePath(mindmap!, path);
