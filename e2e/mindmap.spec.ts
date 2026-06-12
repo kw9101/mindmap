@@ -125,6 +125,21 @@ test("Tab while editing creates a child node instead of indenting under a siblin
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n");
 });
 
+test("Escape deletes an empty node while editing", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+
+  await parent.focus();
+  await parent.press("Tab");
+  await expect(nodeInput(page, "right/0/0")).toBeFocused();
+
+  await nodeInput(page, "right/0/0").press("Escape");
+
+  await expect(nodeInput(page, "right/0/0")).toHaveCount(0);
+  await expect(parent).toHaveClass(/selected/);
+  await expect(parent).not.toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+});
+
 test("Enter on a node with children focuses the new sibling", async ({ page }) => {
   const parent = nodeInput(page, "right/0");
 
@@ -192,8 +207,11 @@ test("typing a space into an empty node remains valid markdown", async ({ page }
 
   await firstNode.focus();
   await firstNode.press("Space");
+  await firstNode.press("Escape");
 
   await expect(firstNode).toHaveValue(" ");
+  await expect(firstNode).toHaveClass(/selected/);
+  await expect(firstNode).not.toBeFocused();
   await expect(page.locator(".diagnostics")).toHaveCount(0);
   await expect(markdownOutput(page)).toHaveText("#\n\n-  \n");
 });

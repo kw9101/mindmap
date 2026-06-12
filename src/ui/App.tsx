@@ -178,13 +178,18 @@ export function App() {
   );
 
   const commitMindmap = useCallback(
-    (nextMindmap: Mindmap, label: string, nextSelectedPath?: string) => {
+    (
+      nextMindmap: Mindmap,
+      label: string,
+      nextSelectedPath?: string,
+      editing = nextSelectedPath !== undefined && nextSelectedPath !== ""
+    ) => {
       commitSource(serializeMindmap(nextMindmap), label);
       if (nextSelectedPath !== undefined) {
         setViewState((current) => ({
           ...current,
           selectedNodePath: nextSelectedPath,
-          editingNodePath: nextSelectedPath || null
+          editingNodePath: editing && nextSelectedPath ? nextSelectedPath : null
         }));
       }
     },
@@ -727,6 +732,16 @@ export function App() {
           findNode(next, fallback) ? fallback : firstNodePath(next)
         );
       }}
+      onDeleteEmpty={(path) => {
+        const fallback = previousNodePath(mindmap!, path);
+        const next = deleteNode(mindmap!, path);
+        commitMindmap(
+          next,
+          "Delete empty node",
+          selectionPathAfterDelete(next, fallback),
+          false
+        );
+      }}
       onOutdent={(path) => {
         const next = outdentNode(mindmap!, path);
         commitMindmap(next, "Outdent node", remapPathAfterTextMatch(next, path));
@@ -1014,6 +1029,7 @@ function NodeEditor({
   onAddChild,
   onAddSibling,
   onDelete,
+  onDeleteEmpty,
   onOutdent,
   onMoveUp,
   onMoveDown
@@ -1027,6 +1043,7 @@ function NodeEditor({
   onAddChild: (path: string) => void;
   onAddSibling: (path: string) => void;
   onDelete: (path: string) => void;
+  onDeleteEmpty: (path: string) => void;
   onOutdent: (path: string) => void;
   onMoveUp: (path: string) => void;
   onMoveDown: (path: string) => void;
@@ -1046,6 +1063,7 @@ function NodeEditor({
             onAddChild={onAddChild}
             onAddSibling={onAddSibling}
             onDelete={onDelete}
+            onDeleteEmpty={onDeleteEmpty}
             onOutdent={onOutdent}
             onMoveUp={onMoveUp}
             onMoveDown={onMoveDown}
@@ -1081,8 +1099,12 @@ function NodeEditor({
             } else if (shortcut === "add-child") {
               onAddChild(node.path);
             } else if (shortcut === "exit-editing") {
-              onExitEditing(node.path);
               event.currentTarget.blur();
+              if (node.text.length === 0) {
+                onDeleteEmpty(node.path);
+              } else {
+                onExitEditing(node.path);
+              }
             } else if (shortcut === "outdent") {
               onOutdent(node.path);
             } else if (shortcut === "move-up") {
@@ -1238,6 +1260,14 @@ function remapPathAfterTextMatch(mindmap: Mindmap, previousPath: string): string
   }
 
   return firstNodePath(mindmap);
+}
+
+function selectionPathAfterDelete(mindmap: Mindmap, fallbackPath: string): string {
+  if (isRootNodePath(fallbackPath)) {
+    return rootNodePath;
+  }
+
+  return findNode(mindmap, fallbackPath) ? fallbackPath : firstNodePath(mindmap);
 }
 
 function errorMessage(error: unknown): string {
