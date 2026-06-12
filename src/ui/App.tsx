@@ -70,7 +70,7 @@ import {
   writeMarkdownFileAtomic,
   type DiffFiles
 } from "../platform/native";
-import { isImeComposing } from "./keyboard";
+import { getNodeEditingShortcut, isImeComposing } from "./keyboard";
 import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
 const autosaveDelayMs = 700;
@@ -642,10 +642,6 @@ export function App() {
           findNode(next, fallback) ? fallback : firstNodePath(next)
         );
       }}
-      onIndent={(path) => {
-        const next = indentNode(mindmap!, path);
-        commitMindmap(next, "Indent node", remapPathAfterTextMatch(next, path));
-      }}
       onOutdent={(path) => {
         const next = outdentNode(mindmap!, path);
         commitMindmap(next, "Outdent node", remapPathAfterTextMatch(next, path));
@@ -857,7 +853,6 @@ function NodeEditor({
   onAddChild,
   onAddSibling,
   onDelete,
-  onIndent,
   onOutdent,
   onMoveUp,
   onMoveDown
@@ -871,7 +866,6 @@ function NodeEditor({
   onAddChild: (path: string) => void;
   onAddSibling: (path: string) => void;
   onDelete: (path: string) => void;
-  onIndent: (path: string) => void;
   onOutdent: (path: string) => void;
   onMoveUp: (path: string) => void;
   onMoveDown: (path: string) => void;
@@ -891,7 +885,6 @@ function NodeEditor({
             onAddChild={onAddChild}
             onAddSibling={onAddSibling}
             onDelete={onDelete}
-            onIndent={onIndent}
             onOutdent={onOutdent}
             onMoveUp={onMoveUp}
             onMoveDown={onMoveDown}
@@ -915,35 +908,27 @@ function NodeEditor({
           onFocus={() => onSelect(node.path)}
           onChange={(event) => onTextChange(node.path, event.target.value)}
           onKeyDown={(event) => {
-            if (isImeComposing(event)) {
+            const shortcut = getNodeEditingShortcut(event);
+            if (!shortcut) {
               return;
             }
 
-            if (event.key === "Enter") {
-              event.preventDefault();
+            event.preventDefault();
+
+            if (shortcut === "add-sibling") {
               onAddSibling(node.path);
-            } else if (event.key === "Escape") {
-              event.preventDefault();
+            } else if (shortcut === "add-child") {
+              onAddChild(node.path);
+            } else if (shortcut === "exit-editing") {
               onExitEditing(node.path);
               event.currentTarget.blur();
-            } else if (event.key === "Tab") {
-              event.preventDefault();
-              if (event.shiftKey) {
-                onOutdent(node.path);
-              } else {
-                onIndent(node.path);
-              }
-            } else if ((event.metaKey || event.altKey) && event.key === "ArrowUp") {
-              event.preventDefault();
+            } else if (shortcut === "outdent") {
+              onOutdent(node.path);
+            } else if (shortcut === "move-up") {
               onMoveUp(node.path);
-            } else if ((event.metaKey || event.altKey) && event.key === "ArrowDown") {
-              event.preventDefault();
+            } else if (shortcut === "move-down") {
               onMoveDown(node.path);
-            } else if (
-              (event.metaKey || event.altKey) &&
-              (event.key === "Backspace" || event.key === "Delete")
-            ) {
-              event.preventDefault();
+            } else if (shortcut === "delete") {
               onDelete(node.path);
             }
           }}

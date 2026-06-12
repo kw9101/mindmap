@@ -1,5 +1,8 @@
 export type KeyboardCompositionEventLike = {
   key?: string;
+  altKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
   isComposing?: boolean;
   keyCode?: number;
   which?: number;
@@ -20,4 +23,50 @@ export function isImeComposing(event: KeyboardCompositionEventLike): boolean {
     event.nativeEvent?.keyCode === 229 ||
     event.nativeEvent?.which === 229
   );
+}
+
+export type NodeEditingShortcut =
+  | "add-sibling"
+  | "add-child"
+  | "exit-editing"
+  | "outdent"
+  | "move-up"
+  | "move-down"
+  | "delete";
+
+export function getNodeEditingShortcut(
+  event: KeyboardCompositionEventLike
+): NodeEditingShortcut | null {
+  if (isImeComposing(event)) {
+    return null;
+  }
+
+  if (event.key === "Enter") {
+    return "add-sibling";
+  }
+
+  if (event.key === "Escape") {
+    return "exit-editing";
+  }
+
+  if (event.key === "Tab") {
+    return event.shiftKey ? "outdent" : "add-child";
+  }
+
+  if ((event.metaKey || event.altKey) && event.key === "ArrowUp") {
+    return "move-up";
+  }
+
+  if ((event.metaKey || event.altKey) && event.key === "ArrowDown") {
+    return "move-down";
+  }
+
+  if (
+    (event.metaKey || event.altKey) &&
+    (event.key === "Backspace" || event.key === "Delete")
+  ) {
+    return "delete";
+  }
+
+  return null;
 }

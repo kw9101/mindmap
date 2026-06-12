@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isImeComposing } from "./keyboard";
+import { getNodeEditingShortcut, isImeComposing } from "./keyboard";
 
 describe("keyboard IME guards", () => {
   it("detects standard composing keyboard events", () => {
@@ -22,5 +22,20 @@ describe("keyboard IME guards", () => {
       false
     );
     expect(isImeComposing({ key: "Tab", keyCode: 9 })).toBe(false);
+  });
+});
+
+describe("node editing shortcuts", () => {
+  it("uses Tab to add a child while editing", () => {
+    expect(getNodeEditingShortcut({ key: "Tab" })).toBe("add-child");
+  });
+
+  it("keeps Shift+Tab as an explicit outdent shortcut", () => {
+    expect(getNodeEditingShortcut({ key: "Tab", shiftKey: true })).toBe("outdent");
+  });
+
+  it("does not run node shortcuts during IME composition", () => {
+    expect(getNodeEditingShortcut({ key: "Tab", isComposing: true })).toBeNull();
+    expect(getNodeEditingShortcut({ key: "Enter", keyCode: 229 })).toBeNull();
   });
 });
