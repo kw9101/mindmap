@@ -70,6 +70,17 @@ export function addSiblingNode(mindmap: Mindmap, path: string): Mindmap {
   return normalizeMindmap(next);
 }
 
+export function addPreviousSiblingNode(mindmap: Mindmap, path: string): Mindmap {
+  const next = cloneMindmap(mindmap);
+  const location = findNodeLocation(next, path);
+  if (!location) {
+    return mindmap;
+  }
+
+  location.siblings.splice(location.index, 0, createNode(location.node.direction, ""));
+  return normalizeMindmap(next);
+}
+
 export function deleteNode(mindmap: Mindmap, path: string): Mindmap {
   const next = cloneMindmap(mindmap);
   const location = findNodeLocation(next, path);
@@ -264,6 +275,28 @@ export function firstChildNodePath(mindmap: Mindmap, path: string): string {
 
   const node = findNode(mindmap, path);
   return node?.children[0]?.path ?? path;
+}
+
+export function horizontalNodePath(
+  mindmap: Mindmap,
+  path: string,
+  arrowDirection: Direction
+): string {
+  if (isRootNodePath(path)) {
+    return (
+      mindmap.children.find((node) => node.direction === arrowDirection)?.path ??
+      rootNodePath
+    );
+  }
+
+  const node = findNode(mindmap, path);
+  if (!node) {
+    return path;
+  }
+
+  return node.direction === arrowDirection
+    ? firstChildNodePath(mindmap, path)
+    : parentNodePath(mindmap, path);
 }
 
 export function firstNodePath(mindmap: Mindmap): string {

@@ -28,7 +28,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - [프로젝트 계획서](docs/project_plan.md)
 - Markdown mindmap parser/serializer와 진단 코드
 - React 기반 자동 배치 마인드맵 편집 화면
-- 노드 추가, 수정, 삭제, 형제 추가, 들여쓰기, 내어쓰기, 형제 순서 이동
+- 노드 추가, 수정, 삭제, 형제/자식 이동 및 생성, 형제 순서 이동
 - 세션 내 undo/redo
 - Tauri command 기반 Markdown 파일 열기/원자적 저장
 - 지연 자동 저장
@@ -83,22 +83,25 @@ pnpm tauri dev
 
 ## 기본 조작
 
-- 편집 중 `Enter`: 선택 노드 다음에 형제 노드 추가
-- 편집 중 `Tab`: 선택 노드 아래에 자식 노드 추가
-- 편집 중 `Shift+Tab`: 선택 노드를 부모 다음 형제로 내어쓰기
-- 선택 모드 `Tab`: 선택 노드를 이전 형제의 자식으로 들여쓰기
-- 선택 모드 `Shift+Tab`: 선택 노드를 부모 다음 형제로 내어쓰기
+- 편집 중 `Enter`: 다음 형제 노드로 이동, 없으면 선택 노드 다음에 형제 노드 추가
+- 편집 중 `Shift+Enter`: 위 형제 노드로 이동, 없으면 선택 노드 위에 형제 노드 추가
+- 편집 중 `Tab`: 첫 자식 노드로 이동, 없으면 선택 노드 아래에 자식 노드 추가
+- 편집 중 `Shift+Tab`: 부모 노드로 포커스 이동
+- 텍스트와 자식이 모두 없는 빈 노드는 포커스를 잃으면 자동 삭제
+- 마우스 클릭: 노드 선택
+- 선택 모드 `Enter`: 선택 노드 편집
 - `Option+ArrowUp` 또는 `Cmd+ArrowUp`: 형제 순서에서 위로 이동
 - `Option+ArrowDown` 또는 `Cmd+ArrowDown`: 형제 순서에서 아래로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
 - `Esc`: 편집 모드에서 선택 모드로 전환. 빈 일반 노드에서는 해당 노드 삭제
 - 선택 모드 `ArrowUp` / `ArrowDown`: 위/아래 형제 노드 선택
-- 선택 모드 `ArrowLeft`: 부모 노드 선택
-- 선택 모드 `ArrowRight`: 첫 자식 노드 선택
-- 선택 모드 `Enter`, `Space`, `F2`: 선택 노드 편집
+- 선택 모드 `ArrowLeft`: 화면상 왼쪽 노드 선택
+- 선택 모드 `ArrowRight`: 화면상 오른쪽 노드 선택
+- 선택 모드 `Enter`: 선택 노드 편집
 - 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - 빈 캔버스 드래그: 화면 pan
+- 마우스 휠: 화면 확대/축소
 - `Center`: pan 위치 초기화
 - `Cmd+Z`: undo
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo

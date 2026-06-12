@@ -29,7 +29,8 @@ export type NodeEditingShortcut =
   | "add-sibling"
   | "add-child"
   | "exit-editing"
-  | "outdent"
+  | "focus-previous"
+  | "focus-parent"
   | "move-up"
   | "move-down"
   | "delete";
@@ -41,6 +42,10 @@ export function getNodeEditingShortcut(
     return null;
   }
 
+  if (event.key === "Enter" && event.shiftKey) {
+    return "focus-previous";
+  }
+
   if (event.key === "Enter") {
     return "add-sibling";
   }
@@ -50,7 +55,7 @@ export function getNodeEditingShortcut(
   }
 
   if (event.key === "Tab") {
-    return event.shiftKey ? "outdent" : "add-child";
+    return event.shiftKey ? "focus-parent" : "add-child";
   }
 
   if ((event.metaKey || event.altKey) && event.key === "ArrowUp") {

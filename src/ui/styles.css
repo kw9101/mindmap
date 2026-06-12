@@ -16,7 +16,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -337,7 +338,7 @@ kbd {
   content: none;
 }
 
-.root-node input,
+.root-node textarea,
 .node-input {
   border: 1px solid #ccd2d9;
   border-radius: 8px;
@@ -346,15 +347,27 @@ kbd {
   color: #202124;
   line-height: 1.35;
   cursor: text;
+  display: block;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
-.root-node input.selected,
+.root-node textarea.selected,
 .node-input.selected {
   border-color: #4d88ff;
   box-shadow: 0 0 0 3px #dce8ff;
 }
 
-.root-node input {
+.root-node textarea[readonly],
+.node-input[readonly] {
+  cursor: default;
+  caret-color: transparent;
+}
+
+.root-node textarea {
   text-align: center;
   font-weight: 700;
   min-height: 44px;
@@ -594,12 +607,12 @@ kbd {
     max-width: 100%;
   }
 
-  .root-node input,
+  .root-node textarea,
   .node-input {
     max-width: 280px;
   }
 
-  .root-node input {
+  .root-node textarea {
     max-width: 260px;
   }
 }

@@ -30,8 +30,16 @@ describe("node editing shortcuts", () => {
     expect(getNodeEditingShortcut({ key: "Tab" })).toBe("add-child");
   });
 
-  it("keeps Shift+Tab as an explicit outdent shortcut", () => {
-    expect(getNodeEditingShortcut({ key: "Tab", shiftKey: true })).toBe("outdent");
+  it("uses Shift+Tab to focus the parent while editing", () => {
+    expect(getNodeEditingShortcut({ key: "Tab", shiftKey: true })).toBe(
+      "focus-parent"
+    );
+  });
+
+  it("uses Shift+Enter to focus the previous sibling while editing", () => {
+    expect(getNodeEditingShortcut({ key: "Enter", shiftKey: true })).toBe(
+      "focus-previous"
+    );
   });
 
   it("does not run node shortcuts during IME composition", () => {

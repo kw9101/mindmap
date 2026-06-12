@@ -14,8 +14,15 @@ test("initial document renders one empty mindmap node", async ({ page }) => {
 });
 
 test("editing the root and first node updates markdown", async ({ page }) => {
-  await page.getByLabel("Root heading").fill("Project");
-  await nodeInput(page, "right/0").fill("Idea");
+  const root = page.getByLabel("Root heading");
+  await root.click();
+  await page.keyboard.press("Enter");
+  await root.fill("Project");
+
+  const first = nodeInput(page, "right/0");
+  await first.click();
+  await page.keyboard.press("Enter");
+  await first.fill("Idea");
 
   await expect(markdownOutput(page)).toHaveText("# Project\n\n- Idea\n");
 });
@@ -23,20 +30,74 @@ test("editing the root and first node updates markdown", async ({ page }) => {
 test("Enter creates a sibling node and undo redo restores it", async ({ page }) => {
   const firstNode = nodeInput(page, "right/0");
 
+  await firstNode.fill("A");
   await firstNode.focus();
   await firstNode.press("Enter");
 
   await expect(page.locator(".node-input")).toHaveCount(2);
   await expect(nodeInput(page, "right/1")).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
+
+  await nodeInput(page, "right/1").fill("B");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".node-input")).toHaveCount(1);
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
 
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.locator(".node-input")).toHaveCount(2);
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
+
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
+});
+
+test("Enter moves to an existing next sibling before creating one", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+
+  await first.focus();
+  await first.press("Enter");
+  await first.press("Enter");
+
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
+});
+
+test("empty leaf nodes are removed when they lose focus", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+
+  await first.click();
+
+  await expect(page.locator(".node-input")).toHaveCount(1);
+  await expect(nodeInput(page, "right/1")).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
+});
+
+test("creating from an empty leaf replaces it instead of leaving another blank", async ({
+  page
+}) => {
+  const first = nodeInput(page, "right/0");
+
+  await first.focus();
+  await first.press("Enter");
+
+  await expect(page.locator(".node-input")).toHaveCount(1);
+  await expect(nodeInput(page, "right/0")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
 });
 
 test("toolbar can add right and left root nodes", async ({ page }) => {
@@ -46,7 +107,7 @@ test("toolbar can add right and left root nodes", async ({ page }) => {
 
   await page.getByRole("button", { name: "Add left root node" }).click();
   await expect(nodeInput(page, "left/0")).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n-\n\n## Left\n\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n\n## Left\n\n-\n");
 });
 
 test("zoom controls can zoom in and reset", async ({ page }) => {
@@ -56,6 +117,20 @@ test("zoom controls can zoom in and reset", async ({ page }) => {
   await page.getByRole("button", { name: "Zoom in" }).click();
   await expect(resetZoomButton).toHaveText("110%");
   await page.getByRole("button", { name: "Reset zoom" }).click();
+  await expect(resetZoomButton).toHaveText("100%");
+});
+
+test("mouse wheel zooms the canvas in and out", async ({ page }) => {
+  const viewport = page.getByLabel("Mindmap canvas");
+  const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
+  const box = await viewport.boundingBox();
+  expect(box).not.toBeNull();
+
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.wheel(0, -100);
+  await expect(resetZoomButton).toHaveText("110%");
+
+  await page.mouse.wheel(0, 100);
   await expect(resetZoomButton).toHaveText("100%");
 });
 
@@ -129,6 +204,28 @@ test("shortcut help keeps question mark editable and opens from selection mode",
   await expect(page.getByRole("dialog", { name: "키바인딩" })).toBeVisible();
 });
 
+test("mouse click selects a node without entering editing", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  await first.click();
+  await expect(first).toHaveClass(/selected/);
+  await expect(first).toHaveAttribute("readonly", "");
+
+  await page.keyboard.type("X");
+  await expect(first).toHaveValue("A");
+
+  await page.keyboard.press("Enter");
+  await expect(first).not.toHaveAttribute("readonly", "");
+  await page.keyboard.press("End");
+  await page.keyboard.type("X");
+
+  await expect(first).toHaveValue("AX");
+});
+
 test("arrow navigation can move between the first node and the root", async ({ page }) => {
   const root = page.getByLabel("Root heading");
   const firstNode = page.locator(".node-input");
@@ -146,6 +243,57 @@ test("arrow navigation can move between the first node and the root", async ({ p
   await expect(firstNode).toHaveClass(/selected/);
 });
 
+test("left branch horizontal arrows follow visual direction", async ({ page }) => {
+  const root = page.getByLabel("Root heading");
+
+  await page.getByRole("button", { name: "Add left root node" }).click();
+  const left = nodeInput(page, "left/0");
+  await expect(left).toBeFocused();
+
+  await left.press("Tab");
+  const leftChild = nodeInput(page, "left/0/0");
+  await expect(leftChild).toBeFocused();
+  await leftChild.fill("left child");
+
+  await leftChild.press("Escape");
+  await page.keyboard.press("ArrowRight");
+
+  await expect(left).toHaveClass(/selected/);
+  await expect(leftChild).not.toHaveClass(/selected/);
+
+  await page.keyboard.press("ArrowLeft");
+
+  await expect(leftChild).toHaveClass(/selected/);
+
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+
+  await expect(root).toHaveClass(/selected/);
+
+  await page.keyboard.press("ArrowLeft");
+
+  await expect(left).toHaveClass(/selected/);
+});
+
+test("selection mode Enter starts editing without moving nodes", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+  await nodeInput(page, "right/0/0").fill("Child");
+
+  await parent.focus();
+  await parent.press("Escape");
+  await page.keyboard.press("Enter");
+
+  await expect(parent).not.toHaveAttribute("readonly", "");
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+
+  await expect(parent).toHaveValue("Parent!");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent!\n  - Child\n");
+});
+
 test("ArrowDown moves to the lower sibling instead of the first child", async ({
   page
 }) => {
@@ -154,10 +302,13 @@ test("ArrowDown moves to the lower sibling instead of the first child", async ({
   await parent.fill("A");
   await parent.press("Tab");
   await expect(nodeInput(page, "right/0/0")).toBeFocused();
+  await nodeInput(page, "right/0/0").fill("A-1");
 
   await parent.focus();
   await parent.press("Enter");
+  await parent.press("Enter");
   await expect(nodeInput(page, "right/1")).toBeFocused();
+  await nodeInput(page, "right/1").fill("B");
 
   await parent.focus();
   await parent.press("Escape");
@@ -185,6 +336,65 @@ test("Tab while editing creates a child node instead of indenting under a siblin
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n");
 });
 
+test("Tab while editing moves to an existing first child before creating one", async ({
+  page
+}) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+  await nodeInput(page, "right/0/0").fill("Child");
+
+  await parent.focus();
+  await parent.press("Enter");
+  await parent.press("Tab");
+
+  await expect(nodeInput(page, "right/0/0")).toBeFocused();
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent\n  - Child\n");
+});
+
+test("Shift+Enter while editing focuses the previous sibling", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+
+  const second = nodeInput(page, "right/1");
+  await expect(second).toBeFocused();
+  await second.press("Shift+Enter");
+
+  await expect(first).toBeFocused();
+  await expect(page.locator(".node-input")).toHaveCount(1);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
+});
+
+test("Shift+Enter while editing creates a previous sibling when none exists", async ({
+  page
+}) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Shift+Enter");
+
+  await expect(nodeInput(page, "right/0")).toBeFocused();
+  await expect(nodeInput(page, "right/1")).toHaveValue("A");
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n- A\n");
+});
+
+test("Shift+Tab while editing focuses the parent without changing structure", async ({
+  page
+}) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.focus();
+  await parent.press("Tab");
+
+  const child = nodeInput(page, "right/0/0");
+  await expect(child).toBeFocused();
+  await child.fill("Child");
+  await child.press("Shift+Tab");
+
+  await expect(parent).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  - Child\n");
+});
+
 test("Escape deletes an empty node while editing", async ({ page }) => {
   const parent = nodeInput(page, "right/0");
 
@@ -206,12 +416,14 @@ test("Enter on a node with children focuses the new sibling", async ({ page }) =
   await parent.focus();
   await parent.press("Tab");
   await expect(nodeInput(page, "right/0/0")).toBeFocused();
+  await nodeInput(page, "right/0/0").fill("Child");
 
   await parent.focus();
   await parent.press("Enter");
+  await parent.press("Enter");
 
   await expect(nodeInput(page, "right/1")).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  - Child\n-\n");
 });
 
 test("a child node is laid out to the right of its parent", async ({ page }) => {
@@ -269,11 +481,13 @@ test("node connectors use full bezier SVG paths", async ({ page }) => {
 });
 
 test("sibling connectors share one branch trunk", async ({ page }) => {
-  const firstNode = nodeInput(page, "right/0");
+  let currentNode = nodeInput(page, "right/0");
 
-  await firstNode.focus();
+  await currentNode.fill("Node 0");
   for (let index = 0; index < 4; index += 1) {
-    await page.keyboard.press("Enter");
+    await currentNode.press("Enter");
+    currentNode = nodeInput(page, `right/${index + 1}`);
+    await currentNode.fill(`Node ${index + 1}`);
   }
 
   await expect(page.locator(".connector-layer path")).toHaveCount(1);
@@ -323,7 +537,9 @@ test("compact sidebar layout keeps the first right node to the right of the root
   await expect(page.locator(".node-input")).toHaveCount(1);
 
   const relation = await page.evaluate(() => {
-    const root = document.querySelector(".root-node input")?.getBoundingClientRect();
+    const root = document
+      .querySelector('[data-node-path="root"]')
+      ?.getBoundingClientRect();
     const node = document.querySelector(".node-input")?.getBoundingClientRect();
     if (!root || !node) {
       return null;
@@ -351,6 +567,7 @@ test("mobile viewport keeps curved connectors and draggable pan", async ({ page 
   await parent.focus();
   await parent.press("Tab");
   await expect(nodeInput(page, "right/0/0")).toBeVisible();
+  await nodeInput(page, "right/0/0").fill("Child");
 
   await page.mouse.move(24, 210);
   await page.mouse.down();
@@ -358,7 +575,9 @@ test("mobile viewport keeps curved connectors and draggable pan", async ({ page 
   await page.mouse.up();
 
   const mobileState = await page.evaluate(() => {
-    const root = document.querySelector(".root-node input")?.getBoundingClientRect();
+    const root = document
+      .querySelector('[data-node-path="root"]')
+      ?.getBoundingClientRect();
     const parentNode = document
       .querySelector('.node-input[data-node-path="right/0"]')
       ?.getBoundingClientRect();
@@ -393,6 +612,34 @@ test("mobile viewport keeps curved connectors and draggable pan", async ({ page 
   expect(mobileState!.allConnectorsAreBezier).toBe(true);
 });
 
+test("long node text wraps instead of clipping", async ({ page }) => {
+  const node = nodeInput(page, "right/0");
+  const emptyHeight = await elementHeight(node);
+  const longText =
+    "긴 문장이 들어와도 노드 안에서 자연스럽게 줄바꿈되어야 하고 뒤쪽 문장이 사라지면 안 됩니다. " +
+    "This sentence should wrap across multiple visual lines inside the node.";
+
+  await node.fill(longText);
+
+  const wrappedBox = await node.evaluate((element) => {
+    const area = element as HTMLTextAreaElement;
+    const rect = area.getBoundingClientRect();
+    return {
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      clientHeight: area.clientHeight,
+      scrollHeight: area.scrollHeight,
+      overflowWrap: getComputedStyle(area).overflowWrap
+    };
+  });
+
+  expect(wrappedBox.width).toBe(340);
+  expect(wrappedBox.height).toBeGreaterThan(emptyHeight + 24);
+  expect(wrappedBox.scrollHeight - wrappedBox.clientHeight).toBeLessThanOrEqual(4);
+  expect(wrappedBox.overflowWrap).toBe("anywhere");
+  await expect(node).toHaveValue(longText);
+});
+
 test("empty nodes stay compact and grow with text", async ({ page }) => {
   const node = page.locator(".node-input");
   const emptyWidth = await elementWidth(node);
@@ -415,4 +662,8 @@ function nodeInput(page: Page, path: string) {
 
 async function elementWidth(locator: ReturnType<Page["locator"]>): Promise<number> {
   return locator.evaluate((element) => Math.round(element.getBoundingClientRect().width));
+}
+
+async function elementHeight(locator: ReturnType<Page["locator"]>): Promise<number> {
+  return locator.evaluate((element) => Math.round(element.getBoundingClientRect().height));
 }

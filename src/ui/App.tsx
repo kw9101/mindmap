@@ -6,7 +6,10 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type PointerEvent
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent,
+  type WheelEvent
 } from "react";
 import {
   applyExternalSnapshot,
@@ -37,19 +40,18 @@ import { parseMindmap } from "../core/parser";
 import { serializeMindmap } from "../core/serializer";
 import {
   addChildNode,
+  addPreviousSiblingNode,
   addRootNode,
   addSiblingNode,
   deleteNode,
   findNode,
-  firstChildNodePath,
   firstNodePath,
-  indentNode,
+  horizontalNodePath,
   insertSiblingNodes,
   isRootNodePath,
   moveNodeDown,
   moveNodeUp,
   nextSiblingNodePath,
-  outdentNode,
   parentNodePath,
   previousNodePath,
   previousSiblingNodePath,
@@ -100,13 +102,19 @@ type KeyboardShortcutGroup = {
   shortcuts: { keys: string; action: string }[];
 };
 
+type FocusedNodeTarget = {
+  path: string;
+  editing: boolean;
+};
+
 const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
   {
     title: "편집 중",
     shortcuts: [
-      { keys: "Enter", action: "형제 노드 추가" },
-      { keys: "Tab", action: "자식 노드 추가" },
-      { keys: "Shift+Tab", action: "부모 다음 형제로 내어쓰기" },
+      { keys: "Enter", action: "다음 형제로 이동 또는 생성" },
+      { keys: "Shift+Enter", action: "위 형제로 이동 또는 생성" },
+      { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
+      { keys: "Shift+Tab", action: "부모 노드 편집" },
       { keys: "Esc", action: "선택 모드로 전환" },
       { keys: "Option/Cmd+ArrowUp", action: "위로 이동" },
       { keys: "Option/Cmd+ArrowDown", action: "아래로 이동" },
@@ -117,11 +125,9 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
     title: "선택 모드",
     shortcuts: [
       { keys: "ArrowUp/Down", action: "위/아래 형제 노드 선택" },
-      { keys: "ArrowLeft", action: "부모 노드 선택" },
-      { keys: "ArrowRight", action: "첫 자식 노드 선택" },
-      { keys: "Enter/Space/F2", action: "편집 시작" },
-      { keys: "Tab", action: "이전 형제의 자식으로 들여쓰기" },
-      { keys: "Shift+Tab", action: "부모 다음 형제로 내어쓰기" },
+      { keys: "ArrowLeft", action: "화면상 왼쪽 노드 선택" },
+      { keys: "ArrowRight", action: "화면상 오른쪽 노드 선택" },
+      { keys: "Enter", action: "편집 시작" },
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
       { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
@@ -138,6 +144,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Cmd/Ctrl++", action: "확대" },
       { keys: "Cmd/Ctrl+-", action: "축소" },
       { keys: "Cmd/Ctrl+0", action: "100%" },
+      { keys: "마우스 휠", action: "확대/축소" },
       { keys: "? 또는 Cmd/Ctrl+/", action: "키바인딩 도움말" }
     ]
   }
@@ -227,6 +234,18 @@ export function App() {
       selectedNodePath: path,
       editingNodePath: editing ? path : null
     }));
+  }, []);
+
+  const exitEditingIfCurrent = useCallback((path: string) => {
+    setViewState((current) =>
+      current.editingNodePath === path
+        ? {
+            ...current,
+            selectedNodePath: path,
+            editingNodePath: null
+          }
+        : current
+    );
   }, []);
 
   const saveCurrent = useCallback(
@@ -357,6 +376,18 @@ export function App() {
     setViewState((current) => ({
       ...current,
       pan: resetPan()
+    }));
+  }, []);
+
+  const handleViewportWheel = useCallback((event: WheelEvent<HTMLElement>) => {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    setViewState((current) => ({
+      ...current,
+      zoom: event.deltaY < 0 ? zoomIn(current.zoom) : zoomOut(current.zoom)
     }));
   }, []);
 
@@ -638,8 +669,8 @@ export function App() {
       return;
     }
 
-    const input = globalThis.document?.querySelector<HTMLInputElement>(
-      `input[data-node-path="${CSS.escape(viewState.editingNodePath)}"]`
+    const input = globalThis.document?.querySelector<HTMLElement>(
+      `[data-node-path="${CSS.escape(viewState.editingNodePath)}"]`
     );
     input?.focus();
   }, [viewState.editingNodePath]);
@@ -749,28 +780,13 @@ export function App() {
           selectNode(nextSiblingNodePath(mindmap, viewState.selectedNodePath), false);
         } else if (event.key === "ArrowLeft") {
           event.preventDefault();
-          selectNode(parentNodePath(mindmap, viewState.selectedNodePath), false);
+          selectNode(horizontalNodePath(mindmap, viewState.selectedNodePath, "left"), false);
         } else if (event.key === "ArrowRight") {
           event.preventDefault();
-          selectNode(firstChildNodePath(mindmap, viewState.selectedNodePath), false);
-        } else if (event.key === "Enter" || event.key === " " || event.key === "F2") {
+          selectNode(horizontalNodePath(mindmap, viewState.selectedNodePath, "right"), false);
+        } else if (event.key === "Enter") {
           event.preventDefault();
           selectNode(viewState.selectedNodePath, true);
-        } else if (event.key === "Tab") {
-          if (isRootNodePath(viewState.selectedNodePath)) {
-            event.preventDefault();
-            return;
-          }
-
-          event.preventDefault();
-          const next = event.shiftKey
-            ? outdentNode(mindmap, viewState.selectedNodePath)
-            : indentNode(mindmap, viewState.selectedNodePath);
-          commitMindmap(
-            next,
-            event.shiftKey ? "Outdent node" : "Indent node",
-            remapPathAfterTextMatch(next, viewState.selectedNodePath)
-          );
         } else if (event.key === "Backspace" || event.key === "Delete") {
           if (isRootNodePath(viewState.selectedNodePath)) {
             event.preventDefault();
@@ -816,22 +832,36 @@ export function App() {
     "--workspace-pan-x": `${viewState.pan.x}px`,
     "--workspace-pan-y": `${viewState.pan.y}px`
   } as CSSProperties;
+  const rootEditing = viewState.editingNodePath === rootNodePath;
   const renderNodeEditor = (node: MindmapNode, side: Direction) => (
     <NodeEditor
       key={node.path}
       node={node}
       side={side}
       selectedPath={viewState.selectedNodePath}
-      onSelect={(path) => selectNode(path, true)}
-      onExitEditing={(path) => selectNode(path, false)}
+      editingPath={viewState.editingNodePath}
+      onSelect={(path, editing) => selectNode(path, editing)}
+      onExitEditing={exitEditingIfCurrent}
       onTextChange={(path, text) => {
         commitMindmap(updateNodeText(mindmap!, path, text), "Edit node text", path);
       }}
-      onAddChild={(path) => {
+      onFocusChildOrCreate={(path) => {
+        const childPath = firstChildPathForExistingNode(mindmap!, path);
+        if (childPath) {
+          selectNode(childPath, true);
+          return;
+        }
+
         const next = addChildNode(mindmap!, path);
         commitMindmap(next, "Add child node", lastChildPath(next, path));
       }}
-      onAddSibling={(path) => {
+      onFocusNextOrCreate={(path) => {
+        const nextPath = nextSiblingNodePath(mindmap!, path);
+        if (nextPath !== path) {
+          selectNode(nextPath, true);
+          return;
+        }
+
         const next = addSiblingNode(mindmap!, path);
         commitMindmap(next, "Add sibling node", nextSiblingNodePath(next, path));
       }}
@@ -844,19 +874,31 @@ export function App() {
           findNode(next, fallback) ? fallback : firstNodePath(next)
         );
       }}
-      onDeleteEmpty={(path) => {
-        const fallback = previousNodePath(mindmap!, path);
+      onDeleteEmpty={(path, nextFocusedNode) => {
+        const preferredPath = nextFocusedNode
+          ? remapPathAfterDeleting(path, nextFocusedNode.path)
+          : null;
+        const fallback = preferredPath ?? previousNodePath(mindmap!, path);
         const next = deleteNode(mindmap!, path);
         commitMindmap(
           next,
           "Delete empty node",
           selectionPathAfterDelete(next, fallback),
-          false
+          preferredPath !== null && nextFocusedNode?.editing === true
         );
       }}
-      onOutdent={(path) => {
-        const next = outdentNode(mindmap!, path);
-        commitMindmap(next, "Outdent node", remapPathAfterTextMatch(next, path));
+      onFocusPrevious={(path) => {
+        const previousPath = previousSiblingNodePath(mindmap!, path);
+        if (previousPath !== path) {
+          selectNode(previousPath, true);
+          return;
+        }
+
+        const next = addPreviousSiblingNode(mindmap!, path);
+        commitMindmap(next, "Add previous sibling node", path);
+      }}
+      onFocusParent={(path) => {
+        selectNode(parentNodePath(mindmap!, path), true);
       }}
       onMoveUp={(path) => {
         const next = moveNodeUp(mindmap!, path);
@@ -1032,6 +1074,7 @@ export function App() {
             onPointerMove={handleViewportPointerMove}
             onPointerUp={stopViewportPan}
             onPointerCancel={stopViewportPan}
+            onWheel={handleViewportWheel}
           >
             <section
               className={`workspace${leftNodes.length > 0 ? " has-left" : ""}${
@@ -1054,21 +1097,30 @@ export function App() {
               </aside>
 
               <section className="root-node" aria-label="Root node">
-                <input
+                <NodeTextArea
                   className={viewState.selectedNodePath === rootNodePath ? "selected" : ""}
-                  data-node-path={rootNodePath}
+                  path={rootNodePath}
                   value={mindmap!.title}
-                  style={{ width: getRootInputWidth(mindmap!.title) }}
-                  aria-label="Root heading"
-                  onFocus={() => selectNode(rootNodePath, true)}
-                  onChange={(event) =>
-                    commitMindmap(
-                      updateRootTitle(mindmap!, event.target.value),
-                      "Edit root heading"
-                    )
+                  width={getRootInputWidth(mindmap!.title)}
+                  ariaLabel="Root heading"
+                  readOnly={!rootEditing}
+                  onFocus={() => selectNode(rootNodePath, rootEditing)}
+                  onChange={(text) =>
+                    commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
                   }
+                  onBlur={() => exitEditingIfCurrent(rootNodePath)}
                   onKeyDown={(event) => {
+                    if (!rootEditing) {
+                      return;
+                    }
+
                     if (isImeComposing(event)) {
+                      return;
+                    }
+
+                    if (event.key === "Enter" || (event.key === "Tab" && event.shiftKey)) {
+                      event.preventDefault();
+                      selectNode(rootNodePath, true);
                       return;
                     }
 
@@ -1152,32 +1204,90 @@ function KeyboardHelpModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function NodeTextArea({
+  className,
+  path,
+  value,
+  width,
+  ariaLabel,
+  readOnly,
+  onFocus,
+  onChange,
+  onBlur,
+  onKeyDown
+}: {
+  className: string;
+  path: string;
+  value: string;
+  width: number;
+  ariaLabel: string;
+  readOnly: boolean;
+  onFocus: () => void;
+  onChange: (text: string) => void;
+  onBlur: (nextFocusedNode: FocusedNodeTarget | null) => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+}) {
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useLayoutEffect(() => {
+    const textArea = textAreaRef.current;
+    if (!textArea) {
+      return;
+    }
+
+    textArea.style.height = "auto";
+    textArea.style.height = `${textArea.scrollHeight}px`;
+  }, [value, width]);
+
+  return (
+    <textarea
+      ref={textAreaRef}
+      className={className}
+      data-node-path={path}
+      value={value}
+      rows={1}
+      wrap="soft"
+      style={{ width }}
+      aria-label={ariaLabel}
+      readOnly={readOnly}
+      onFocus={onFocus}
+      onChange={(event) => onChange(toSingleLineNodeText(event.target.value))}
+      onBlur={(event) => onBlur(nodeTargetFromRelatedTarget(event))}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
 function NodeEditor({
   node,
   side,
   selectedPath,
+  editingPath,
   onSelect,
   onExitEditing,
   onTextChange,
-  onAddChild,
-  onAddSibling,
+  onFocusChildOrCreate,
+  onFocusNextOrCreate,
   onDelete,
   onDeleteEmpty,
-  onOutdent,
+  onFocusPrevious,
+  onFocusParent,
   onMoveUp,
   onMoveDown
 }: {
   node: MindmapNode;
   side: Direction;
   selectedPath: string;
-  onSelect: (path: string) => void;
+  editingPath: string | null;
+  onSelect: (path: string, editing: boolean) => void;
   onExitEditing: (path: string) => void;
   onTextChange: (path: string, text: string) => void;
-  onAddChild: (path: string) => void;
-  onAddSibling: (path: string) => void;
+  onFocusChildOrCreate: (path: string) => void;
+  onFocusNextOrCreate: (path: string) => void;
   onDelete: (path: string) => void;
-  onDeleteEmpty: (path: string) => void;
-  onOutdent: (path: string) => void;
+  onDeleteEmpty: (path: string, nextFocusedNode?: FocusedNodeTarget | null) => void;
+  onFocusPrevious: (path: string) => void;
+  onFocusParent: (path: string) => void;
   onMoveUp: (path: string) => void;
   onMoveDown: (path: string) => void;
 }) {
@@ -1190,14 +1300,16 @@ function NodeEditor({
             node={child}
             side={side}
             selectedPath={selectedPath}
+            editingPath={editingPath}
             onSelect={onSelect}
             onExitEditing={onExitEditing}
             onTextChange={onTextChange}
-            onAddChild={onAddChild}
-            onAddSibling={onAddSibling}
+            onFocusChildOrCreate={onFocusChildOrCreate}
+            onFocusNextOrCreate={onFocusNextOrCreate}
             onDelete={onDelete}
             onDeleteEmpty={onDeleteEmpty}
-            onOutdent={onOutdent}
+            onFocusPrevious={onFocusPrevious}
+            onFocusParent={onFocusParent}
             onMoveUp={onMoveUp}
             onMoveDown={onMoveDown}
           />
@@ -1206,20 +1318,35 @@ function NodeEditor({
     ) : null;
 
   const selected = selectedPath === node.path;
+  const editing = editingPath === node.path;
 
   return (
     <div className={`node-subtree ${side}`}>
       {side === "left" && children}
       <div className="node-row">
-        <input
+        <NodeTextArea
           className={`node-input${selected ? " selected" : ""}`}
-          data-node-path={node.path}
+          path={node.path}
           value={node.text}
-          style={{ width: getNodeInputWidth(node.text) }}
-          aria-label={`Node ${node.path}`}
-          onFocus={() => onSelect(node.path)}
-          onChange={(event) => onTextChange(node.path, event.target.value)}
+          width={getNodeInputWidth(node.text)}
+          ariaLabel={`Node ${node.path}`}
+          readOnly={!editing}
+          onFocus={() => onSelect(node.path, editing)}
+          onChange={(text) => onTextChange(node.path, text)}
+          onBlur={(nextFocusedPath) => {
+            if (node.text.length === 0 && node.children.length === 0) {
+              onDeleteEmpty(node.path, nextFocusedPath);
+            } else if (nextFocusedPath?.editing) {
+              return;
+            } else {
+              onExitEditing(node.path);
+            }
+          }}
           onKeyDown={(event) => {
+            if (!editing) {
+              return;
+            }
+
             const shortcut = getNodeEditingShortcut(event);
             if (!shortcut) {
               return;
@@ -1228,18 +1355,15 @@ function NodeEditor({
             event.preventDefault();
 
             if (shortcut === "add-sibling") {
-              onAddSibling(node.path);
+              onFocusNextOrCreate(node.path);
             } else if (shortcut === "add-child") {
-              onAddChild(node.path);
+              onFocusChildOrCreate(node.path);
             } else if (shortcut === "exit-editing") {
               event.currentTarget.blur();
-              if (node.text.length === 0) {
-                onDeleteEmpty(node.path);
-              } else {
-                onExitEditing(node.path);
-              }
-            } else if (shortcut === "outdent") {
-              onOutdent(node.path);
+            } else if (shortcut === "focus-previous") {
+              onFocusPrevious(node.path);
+            } else if (shortcut === "focus-parent") {
+              onFocusParent(node.path);
             } else if (shortcut === "move-up") {
               onMoveUp(node.path);
             } else if (shortcut === "move-down") {
@@ -1253,6 +1377,30 @@ function NodeEditor({
       {side === "right" && children}
     </div>
   );
+}
+
+function toSingleLineNodeText(text: string): string {
+  return text.replace(/\r\n|\r|\n/g, " ");
+}
+
+function nodeTargetFromRelatedTarget(
+  event: ReactFocusEvent<HTMLElement>
+): FocusedNodeTarget | null {
+  const target = event.relatedTarget;
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+
+  const element = target.closest<HTMLElement>("[data-node-path]");
+  const path = element?.dataset.nodePath;
+  if (!path) {
+    return null;
+  }
+
+  return {
+    path,
+    editing: target instanceof HTMLTextAreaElement && !target.readOnly
+  };
 }
 
 function Diagnostics({
@@ -1387,6 +1535,14 @@ function lastChildPath(mindmap: Mindmap, parentPath: string): string {
   return parent?.children[parent.children.length - 1]?.path ?? parentPath;
 }
 
+function firstChildPathForExistingNode(
+  mindmap: Mindmap,
+  parentPath: string
+): string | null {
+  const parent = findNode(mindmap, parentPath);
+  return parent?.children[0]?.path ?? null;
+}
+
 function remapPathAfterTextMatch(mindmap: Mindmap, previousPath: string): string {
   if (findNode(mindmap, previousPath)) {
     return previousPath;
@@ -1401,6 +1557,58 @@ function selectionPathAfterDelete(mindmap: Mindmap, fallbackPath: string): strin
   }
 
   return findNode(mindmap, fallbackPath) ? fallbackPath : firstNodePath(mindmap);
+}
+
+function remapPathAfterDeleting(
+  deletedPath: string,
+  preferredPath: string
+): string | null {
+  if (
+    preferredPath === deletedPath ||
+    preferredPath.startsWith(`${deletedPath}/`) ||
+    isRootNodePath(deletedPath)
+  ) {
+    return null;
+  }
+
+  if (isRootNodePath(preferredPath)) {
+    return rootNodePath;
+  }
+
+  const deletedParts = deletedPath.split("/");
+  const preferredParts = preferredPath.split("/");
+  if (
+    preferredParts.length < deletedParts.length ||
+    deletedParts.length < 2 ||
+    preferredParts[0] !== deletedParts[0]
+  ) {
+    return preferredPath;
+  }
+
+  const deletedSiblingIndexPosition = deletedParts.length - 1;
+  const deletedParentParts = deletedParts.slice(0, deletedSiblingIndexPosition);
+  const preferredParentPrefix = preferredParts.slice(0, deletedSiblingIndexPosition);
+  if (!samePathParts(deletedParentParts, preferredParentPrefix)) {
+    return preferredPath;
+  }
+
+  const deletedIndex = Number(deletedParts[deletedSiblingIndexPosition]);
+  const preferredIndex = Number(preferredParts[deletedSiblingIndexPosition]);
+  if (
+    !Number.isInteger(deletedIndex) ||
+    !Number.isInteger(preferredIndex) ||
+    preferredIndex <= deletedIndex
+  ) {
+    return preferredPath;
+  }
+
+  const remappedParts = [...preferredParts];
+  remappedParts[deletedSiblingIndexPosition] = String(preferredIndex - 1);
+  return remappedParts.join("/");
+}
+
+function samePathParts(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((part, index) => part === right[index]);
 }
 
 function buildConnectorPaths(
