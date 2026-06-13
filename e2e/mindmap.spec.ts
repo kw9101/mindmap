@@ -252,6 +252,21 @@ test("Normalize reports when markdown is already canonical", async ({ page }) =>
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
 });
 
+test("parse errors offer auto normalize from the diagnostics screen", async ({
+  page
+}) => {
+  await mockTauriOpenMarkdown(page, "# Broken \n\n- A\n");
+
+  await page.getByRole("button", { name: "Open" }).click();
+  await expect(page.locator(".diagnostics")).toContainText("MM018");
+
+  await page.getByRole("button", { name: "Auto Normalize" }).click();
+
+  await expect(page.locator(".diagnostics")).toHaveCount(0);
+  await expect(page.locator(".notice")).toContainText("Markdown을 정규화했습니다.");
+  await expect(markdownOutput(page)).toHaveText("# Broken\n\n- A\n");
+});
+
 test("zoom controls can zoom in and reset", async ({ page }) => {
   const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
 
@@ -582,7 +597,7 @@ test("node levels have distinct visual styles", async ({ page }) => {
       page.locator(".connector-layer path.connector-level-deep")
     ].map((connector) => elementStrokeWidth(connector))
   );
-  expect(connectorWidths).toEqual([1.75, 2, 2.25, 2.5]);
+  expect(connectorWidths).toEqual([2.6, 2.2, 1.8, 1.5]);
 });
 
 test("node hover handles add children siblings and delete nodes", async ({ page }) => {
@@ -1789,6 +1804,64 @@ function virtualLeftRootInput(page: Page) {
 
 function virtualRightRootInput(page: Page) {
   return virtualRootInput(page, "right");
+}
+
+async function mockTauriOpenMarkdown(page: Page, contents: string): Promise<void> {
+  await page.addInitScript((source) => {
+    let callbackId = 0;
+    const callbacks = new Map<number, unknown>();
+    const path = "/tmp/broken.md";
+    const snapshot = {
+      path,
+      name: "broken.md",
+      contents: source,
+      hash: "mock-hash",
+      mtimeMs: 1,
+      size: source.length
+    };
+
+    window.__TAURI_INTERNALS__ = {
+      transformCallback(callback: unknown) {
+        callbackId += 1;
+        callbacks.set(callbackId, callback);
+        return callbackId;
+      },
+      unregisterCallback(id: number) {
+        callbacks.delete(id);
+      },
+      async invoke(command: string) {
+        if (command === "plugin:dialog|open") {
+          return path;
+        }
+
+        if (command === "read_markdown_file") {
+          return snapshot;
+        }
+
+        if (command === "read_markdown_metadata") {
+          const { contents: _contents, ...metadata } = snapshot;
+          return metadata;
+        }
+
+        if (command === "read_app_state") {
+          return null;
+        }
+
+        if (command === "plugin:event|listen") {
+          return "mock-event-listener";
+        }
+
+        return null;
+      }
+    };
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener() {
+        return undefined;
+      }
+    };
+  }, contents);
+  await page.reload();
+  await expect(page.getByText("clean")).toBeVisible();
 }
 
 async function nodeActionOpacity(page: Page, path: string) {

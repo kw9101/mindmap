@@ -2807,7 +2807,13 @@ export function App() {
           )}
         </>
       ) : (
-        <Diagnostics diagnostics={parseResult.diagnostics} />
+        <Diagnostics
+          diagnostics={parseResult.diagnostics}
+          action={{
+            label: "Auto Normalize",
+            onClick: handleNormalizeMarkdown
+          }}
+        />
       )}
     </main>
   );
@@ -3647,13 +3653,22 @@ function showWhitespace(line: string): string {
 
 function Diagnostics({
   diagnostics,
+  action,
   compact = false
 }: {
   diagnostics: { code: string; message: string; line: number; column: number; help?: string }[];
+  action?: { label: string; onClick: () => void };
   compact?: boolean;
 }) {
   return (
     <section className={`diagnostics${compact ? " compact" : ""}`}>
+      {action && (
+        <div className="diagnostics-actions">
+          <button type="button" onClick={action.onClick}>
+            {action.label}
+          </button>
+        </div>
+      )}
       {diagnostics.map((diagnostic) => (
         <div className="diagnostic" key={`${diagnostic.code}-${diagnostic.line}`}>
           <strong>{diagnostic.code}</strong>

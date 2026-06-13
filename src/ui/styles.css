@@ -548,19 +548,19 @@ kbd {
 }
 
 .connector-layer path.connector-level-1 {
-  stroke-width: 1.75;
+  stroke-width: 2.6;
 }
 
 .connector-layer path.connector-level-2 {
-  stroke-width: 2;
+  stroke-width: 2.2;
 }
 
 .connector-layer path.connector-level-3 {
-  stroke-width: 2.25;
+  stroke-width: 1.8;
 }
 
 .connector-layer path.connector-level-deep {
-  stroke-width: 2.5;
+  stroke-width: 1.5;
 }
 
 .connector-layer path.virtual-connector,
@@ -1192,6 +1192,11 @@ kbd {
 .diagnostics.compact {
   padding: 0;
   min-width: min(560px, 100%);
+}
+
+.diagnostics-actions {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .diagnostic {
