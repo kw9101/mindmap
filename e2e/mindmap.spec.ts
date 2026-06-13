@@ -168,7 +168,10 @@ test("empty parent nodes are not shown as transient", async ({ page }) => {
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
 
-  await parent.press("Tab");
+  await parent.hover();
+  await page
+    .getByRole("button", { exact: true, name: "Add child to Node right/0" })
+    .click();
 
   await expect(parent).not.toHaveClass(/transient-empty/);
   await expect(nodeInput(page, "right/0/0")).toHaveClass(/transient-empty/);
@@ -209,6 +212,24 @@ test("creating from an empty leaf replaces it instead of leaving another blank",
   await expect(page.locator(".node-input")).toHaveCount(1);
   await expect(nodeInput(page, "right/0")).toBeFocused();
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+});
+
+test("Enter on an empty leaf keeps focus instead of jumping to the previous node", async ({
+  page
+}) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+
+  const empty = nodeInput(page, "right/1");
+  await expect(empty).toBeFocused();
+
+  await empty.press("Enter");
+
+  await expect(page.locator(".node-input")).toHaveCount(2);
+  await expect(empty).toBeFocused();
+  await expect(nodeInput(page, "right/0")).not.toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
 });
 
 test("toolbar can add right and left root nodes", async ({ page }) => {
@@ -311,6 +332,49 @@ test("pan controls display and nudge the workspace offset", async ({ page }) => 
   await page.getByRole("button", { name: "Pan up" }).click();
 
   await expect(panOffset).toHaveText("X 0 Y 0");
+});
+
+test("markdown panel starts left and can resize and dock by dragging", async ({
+  page
+}) => {
+  const layout = page.locator(".document-layout");
+  const panel = page.getByLabel("Markdown output");
+  const canvas = page.getByLabel("Mindmap canvas");
+  const resizeHandle = page.getByRole("separator", {
+    name: "Resize Markdown panel"
+  });
+  const dockHandle = page.getByRole("button", { name: "Move Markdown pane" });
+
+  await expect(layout).toHaveClass(/markdown-left/);
+  await expect(page.getByLabel("Markdown pane controls")).toBeVisible();
+  await expect(dockHandle).toBeVisible();
+  await expect(markdownOutput(page)).toHaveText("#\n");
+  expect(await elementWidth(panel)).toBeGreaterThanOrEqual(300);
+
+  const initialLeftLayout = await sideBySideLayout(panel, canvas);
+  expect(initialLeftLayout).not.toBeNull();
+  expect(initialLeftLayout!.panelRight).toBeLessThanOrEqual(
+    initialLeftLayout!.canvasLeft + 2
+  );
+
+  await dragLocatorBy(page, resizeHandle, 100, 0);
+  await expect(resizeHandle).toHaveAttribute("aria-valuenow", "420");
+  expect(await elementWidth(panel)).toBeGreaterThanOrEqual(400);
+
+  await dragLocatorBy(page, dockHandle, 1120, 0);
+  await expect(layout).toHaveClass(/markdown-right/);
+  expect(await elementWidth(panel)).toBeGreaterThanOrEqual(400);
+
+  await dragLocatorBy(page, resizeHandle, -80, 0);
+  await expect(resizeHandle).toHaveAttribute("aria-valuenow", "500");
+  expect(await elementWidth(panel)).toBeGreaterThanOrEqual(490);
+
+  const rightLayout = await sideBySideLayout(panel, canvas);
+  expect(rightLayout).not.toBeNull();
+  expect(rightLayout!.panelLeft).toBeGreaterThanOrEqual(rightLayout!.canvasRight - 2);
+
+  await dragLocatorBy(page, dockHandle, -520, 0);
+  await expect(layout).toHaveClass(/markdown-bottom/);
 });
 
 test("node search highlights matches and jumps between nodes", async ({ page }) => {
@@ -463,6 +527,64 @@ test("selection and editing modes have distinct visual states", async ({ page })
   await expect(node).toHaveClass(/editing/);
 });
 
+test("node levels have distinct visual styles", async ({ page }) => {
+  const level1 = nodeInput(page, "right/0");
+  await level1.fill("Level 1");
+  await level1.press("Tab");
+
+  const level2 = nodeInput(page, "right/0/0");
+  await level2.fill("Level 2");
+  await level2.press("Tab");
+
+  const level3 = nodeInput(page, "right/0/0/0");
+  await level3.fill("Level 3");
+  await level3.press("Tab");
+
+  const level4 = nodeInput(page, "right/0/0/0/0");
+  await level4.fill("Level 4");
+  await level4.press("Escape");
+  await page.getByLabel("Root heading").click();
+
+  await expect(level1).toHaveClass(/node-level-1/);
+  await expect(level2).toHaveClass(/node-level-2/);
+  await expect(level3).toHaveClass(/node-level-3/);
+  await expect(level4).toHaveClass(/node-level-deep/);
+
+  const styles = await Promise.all(
+    [level1, level2, level3, level4].map(async (node) => ({
+      backgroundImage: await elementBackgroundImage(node),
+      backgroundColor: await elementBackgroundColor(node),
+      borderColor: await elementBorderColor(node),
+      color: await elementColor(node),
+      fontWeight: await elementFontWeight(node)
+    }))
+  );
+  expect(styles.every(({ backgroundImage }) => backgroundImage === "none")).toBe(true);
+  expect(new Set(styles.map(({ backgroundColor }) => backgroundColor)).size).toBe(4);
+  expect(new Set(styles.map(({ borderColor }) => borderColor)).size).toBe(4);
+  expect(new Set(styles.map(({ color }) => color)).size).toBe(4);
+  expect(new Set(styles.map(({ fontWeight }) => fontWeight)).size).toBe(4);
+
+  const markdownLineColors = await page.evaluate(() =>
+    ["1", "2", "3", "deep"].map((level) => {
+      const element = document.querySelector(`.markdown-line-level-${level}`);
+      return element ? getComputedStyle(element).color : null;
+    })
+  );
+  expect(markdownLineColors.every((color) => color !== null)).toBe(true);
+  expect(new Set(markdownLineColors).size).toBe(4);
+
+  const connectorWidths = await Promise.all(
+    [
+      page.locator(".connector-layer path.connector-level-1"),
+      page.locator(".connector-layer path.connector-level-2"),
+      page.locator(".connector-layer path.connector-level-3"),
+      page.locator(".connector-layer path.connector-level-deep")
+    ].map((connector) => elementStrokeWidth(connector))
+  );
+  expect(connectorWidths).toEqual([1.75, 2, 2.25, 2.5]);
+});
+
 test("node hover handles add children siblings and delete nodes", async ({ page }) => {
   const first = nodeInput(page, "right/0");
   await first.fill("A");
@@ -489,6 +611,32 @@ test("node hover handles add children siblings and delete nodes", async ({ page 
   await page.getByRole("button", { exact: true, name: "Delete Node right/1" }).click();
   await expect(nodeInput(page, "right/1")).toHaveCount(0);
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  - Child\n");
+});
+
+test("node hover handles stay visible while moving from node to action", async ({
+  page
+}) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Escape");
+
+  const addChild = page.getByRole("button", {
+    exact: true,
+    name: "Add child to Node right/0"
+  });
+
+  await first.hover();
+  await expect.poll(() => nodeActionOpacity(page, "right/0")).toBe("1");
+
+  const actionBox = await addChild.boundingBox();
+  expect(actionBox).not.toBeNull();
+  await page.mouse.move(actionBox!.x - 4, actionBox!.y + actionBox!.height / 2);
+
+  await expect.poll(() => nodeActionOpacity(page, "right/0")).toBe("1");
+
+  await addChild.click();
+  await expect(nodeInput(page, "right/0/0")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  -\n");
 });
 
 test("mouse drag moves a node before a sibling", async ({ page }) => {
@@ -708,6 +856,7 @@ test("left branch arrows follow the nearest visible node", async ({ page }) => {
   const left = nodeInput(page, "left/0");
   await expect(left).toBeFocused();
 
+  await left.fill("left parent");
   await left.press("Tab");
   const leftChild = nodeInput(page, "left/0/0");
   await expect(leftChild).toBeFocused();
@@ -1114,7 +1263,7 @@ test("collapsing a node keeps sibling connector layout stable", async ({ page })
   await expect(nodeInput(page, "right/0/0")).toHaveCount(0);
 });
 
-test("Tab while editing creates a child node instead of indenting under a sibling", async ({
+test("Tab on an empty leaf keeps focus instead of creating another blank node", async ({
   page
 }) => {
   await virtualRightRootInput(page).press("Enter");
@@ -1123,9 +1272,23 @@ test("Tab while editing creates a child node instead of indenting under a siblin
   await firstNode.focus();
   await firstNode.press("Tab");
 
+  await expect(page.locator(".node-input")).toHaveCount(1);
+  await expect(firstNode).toBeFocused();
+  await expect(page.locator('.node-input[data-node-path="right/0/0"]')).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+});
+
+test("Tab while editing creates a child node from a non-empty node", async ({
+  page
+}) => {
+  const firstNode = nodeInput(page, "right/0");
+  await firstNode.fill("A");
+
+  await firstNode.press("Tab");
+
   await expect(page.locator('.node-input[data-node-path="right/0"]')).toBeVisible();
   await expect(page.locator('.node-input[data-node-path="right/0/0"]')).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  -\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  -\n");
 });
 
 test("Tab while editing moves to an existing first child before creating one", async ({
@@ -1176,7 +1339,7 @@ test("Shift+Tab while editing focuses the parent without changing structure", as
 }) => {
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
-  await parent.focus();
+  await parent.fill("Parent");
   await parent.press("Tab");
 
   const child = nodeInput(page, "right/0/0");
@@ -1185,14 +1348,14 @@ test("Shift+Tab while editing focuses the parent without changing structure", as
   await child.press("Shift+Tab");
 
   await expect(parent).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  - Child\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent\n  - Child\n");
 });
 
 test("Escape deletes an empty node while editing", async ({ page }) => {
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
 
-  await parent.focus();
+  await parent.fill("Parent");
   await parent.press("Tab");
   await expect(nodeInput(page, "right/0/0")).toBeFocused();
 
@@ -1201,14 +1364,14 @@ test("Escape deletes an empty node while editing", async ({ page }) => {
   await expect(nodeInput(page, "right/0/0")).toHaveCount(0);
   await expect(parent).toHaveClass(/selected/);
   await expect(parent).not.toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent\n");
 });
 
 test("Enter on a node with children focuses the new sibling", async ({ page }) => {
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
 
-  await parent.focus();
+  await parent.fill("Parent");
   await parent.press("Tab");
   await expect(nodeInput(page, "right/0/0")).toBeFocused();
   await nodeInput(page, "right/0/0").fill("Child");
@@ -1218,14 +1381,14 @@ test("Enter on a node with children focuses the new sibling", async ({ page }) =
   await parent.press("Enter");
 
   await expect(nodeInput(page, "right/1")).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n-\n  - Child\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent\n  - Child\n-\n");
 });
 
 test("a child node is laid out to the right of its parent", async ({ page }) => {
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
 
-  await parent.focus();
+  await parent.fill("Parent");
   await parent.press("Tab");
 
   const child = page.locator('.node-input[data-node-path="right/0/0"]');
@@ -1259,7 +1422,7 @@ test("node connectors use full bezier SVG paths", async ({ page }) => {
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
 
-  await parent.focus();
+  await parent.fill("Parent");
   await parent.press("Tab");
 
   await expect(page.locator(actualConnectorSelector)).toHaveCount(2);
@@ -1365,7 +1528,7 @@ test("mobile viewport keeps curved connectors and draggable pan", async ({ page 
 
   await virtualRightRootInput(page).press("Enter");
   const parent = nodeInput(page, "right/0");
-  await parent.focus();
+  await parent.fill("Parent");
   await parent.press("Tab");
   await expect(nodeInput(page, "right/0/0")).toBeVisible();
   await nodeInput(page, "right/0/0").fill("Child");
@@ -1529,18 +1692,75 @@ async function connectorLayoutSnapshot(page: Page) {
       };
     };
 
+    const rawPositions = {
+      root: rectForPath("root"),
+      parent: rectForPath("right/0"),
+      draft: rectForPath("right/1"),
+      review: rectForPath("right/2")
+    };
+    const root = rawPositions.root;
+    const normalize = (rect: ReturnType<typeof rectForPath>) =>
+      rect && root
+        ? {
+            left: rect.left - root.left,
+            right: rect.right - root.left,
+            top: rect.top - root.top,
+            bottom: rect.bottom - root.top
+          }
+        : rect;
+
     return {
       connectorCount: document.querySelectorAll(
         ".connector-layer path:not(.virtual-connector)"
       ).length,
       positions: {
-        root: rectForPath("root"),
-        parent: rectForPath("right/0"),
-        draft: rectForPath("right/1"),
-        review: rectForPath("right/2")
+        root: normalize(rawPositions.root),
+        parent: normalize(rawPositions.parent),
+        draft: normalize(rawPositions.draft),
+        review: normalize(rawPositions.review)
       }
     };
   });
+}
+
+async function sideBySideLayout(
+  panel: ReturnType<Page["locator"]>,
+  canvas: ReturnType<Page["locator"]>
+): Promise<{
+  panelLeft: number;
+  panelRight: number;
+  canvasLeft: number;
+  canvasRight: number;
+} | null> {
+  const panelBox = await panel.boundingBox();
+  const canvasBox = await canvas.boundingBox();
+  if (!panelBox || !canvasBox) {
+    return null;
+  }
+
+  return {
+    panelLeft: Math.round(panelBox.x),
+    panelRight: Math.round(panelBox.x + panelBox.width),
+    canvasLeft: Math.round(canvasBox.x),
+    canvasRight: Math.round(canvasBox.x + canvasBox.width)
+  };
+}
+
+async function dragLocatorBy(
+  page: Page,
+  locator: ReturnType<Page["locator"]>,
+  deltaX: number,
+  deltaY: number
+): Promise<void> {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 6 });
+  await page.mouse.up();
 }
 
 function markdownOutput(page: Page) {
@@ -1624,6 +1844,18 @@ async function elementOpacity(locator: ReturnType<Page["locator"]>): Promise<str
   return locator.evaluate((element) => getComputedStyle(element).opacity);
 }
 
+async function elementBackgroundColor(
+  locator: ReturnType<Page["locator"]>
+): Promise<string> {
+  return locator.evaluate((element) => getComputedStyle(element).backgroundColor);
+}
+
+async function elementBackgroundImage(
+  locator: ReturnType<Page["locator"]>
+): Promise<string> {
+  return locator.evaluate((element) => getComputedStyle(element).backgroundImage);
+}
+
 async function elementBorderStyle(
   locator: ReturnType<Page["locator"]>
 ): Promise<string> {
@@ -1634,6 +1866,16 @@ async function elementBorderColor(
   locator: ReturnType<Page["locator"]>
 ): Promise<string> {
   return locator.evaluate((element) => getComputedStyle(element).borderColor);
+}
+
+async function elementColor(locator: ReturnType<Page["locator"]>): Promise<string> {
+  return locator.evaluate((element) => getComputedStyle(element).color);
+}
+
+async function elementFontWeight(
+  locator: ReturnType<Page["locator"]>
+): Promise<string> {
+  return locator.evaluate((element) => getComputedStyle(element).fontWeight);
 }
 
 async function elementBoxShadow(
@@ -1652,4 +1894,12 @@ async function elementStrokeDasharray(
   locator: ReturnType<Page["locator"]>
 ): Promise<string> {
   return locator.evaluate((element) => getComputedStyle(element).strokeDasharray);
+}
+
+async function elementStrokeWidth(
+  locator: ReturnType<Page["locator"]>
+): Promise<number> {
+  return locator.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).strokeWidth)
+  );
 }

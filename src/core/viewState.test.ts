@@ -24,7 +24,11 @@ describe("view state", () => {
       editingNodePath: "right/0",
       collapsedNodePaths: [],
       zoom: 1,
-      pan: { x: 0, y: 0 }
+      pan: { x: 0, y: 0 },
+      markdownPanel: {
+        position: "left",
+        size: 320
+      }
     });
   });
 
@@ -43,7 +47,8 @@ describe("view state", () => {
         selectedNodePath: "right/2",
         editingNodePath: null,
         zoom: 3,
-        pan: { x: 30000.4, y: Number.NaN }
+        pan: { x: 30000.4, y: Number.NaN },
+        markdownPanel: { position: "right", size: 900 }
       }),
       "right/0"
     );
@@ -55,7 +60,11 @@ describe("view state", () => {
       editingNodePath: null,
       collapsedNodePaths: [],
       zoom: 2,
-      pan: { x: 20000, y: 0 }
+      pan: { x: 20000, y: 0 },
+      markdownPanel: {
+        position: "right",
+        size: 640
+      }
     });
   });
 

@@ -72,6 +72,10 @@ import {
   createDefaultViewState,
   formatPan,
   formatZoom,
+  clampMarkdownPanelSize,
+  markdownPanelSizeStep,
+  maxMarkdownPanelSize,
+  minMarkdownPanelSize,
   panBy,
   panNudgeStep,
   parseViewState,
@@ -80,6 +84,7 @@ import {
   serializeViewState,
   viewStateKey,
   type MindmapViewState,
+  type MarkdownPanelPosition,
   zoomIn,
   zoomOut
 } from "../core/viewState";
@@ -116,6 +121,7 @@ const virtualRootPaths: Record<Direction, string> = {
 type ConnectorPath = {
   id: string;
   d: string;
+  levelClass?: string;
   virtual?: boolean;
   transient?: boolean;
 };
@@ -164,6 +170,20 @@ type NodeDragSession = {
   previewWidth: number;
   previewHeight: number;
   active: boolean;
+};
+
+type MarkdownPanelResizeSession = {
+  pointerId: number;
+  position: MarkdownPanelPosition;
+  startX: number;
+  startY: number;
+  startSize: number;
+};
+
+type MarkdownPanelDockDragSession = {
+  pointerId: number;
+  startX: number;
+  startY: number;
 };
 
 type NodeDragPreview = {
@@ -269,6 +289,10 @@ export function App() {
     startY: number;
     pan: MindmapViewState["pan"];
   } | null>(null);
+  const markdownPanelResizeRef = useRef<MarkdownPanelResizeSession | null>(null);
+  const markdownPanelDockDragRef = useRef<MarkdownPanelDockDragSession | null>(
+    null
+  );
   const nodeDragRef = useRef<NodeDragSession | null>(null);
 
   const activeDocument = history.present.value;
@@ -786,6 +810,187 @@ export function App() {
       pan: panBy(current.pan, deltaX, deltaY)
     }));
   }, []);
+
+  const handleMarkdownPanelPosition = useCallback(
+    (position: MarkdownPanelPosition) => {
+      setViewState((current) => ({
+        ...current,
+        markdownPanel: {
+          ...current.markdownPanel,
+          position
+        }
+      }));
+    },
+    []
+  );
+
+  const handleMarkdownPanelSize = useCallback((size: number) => {
+    setViewState((current) => ({
+      ...current,
+      markdownPanel: {
+        ...current.markdownPanel,
+        size: clampMarkdownPanelSize(size)
+      }
+    }));
+  }, []);
+
+  const startMarkdownPanelResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      markdownPanelResizeRef.current = {
+        pointerId: event.pointerId,
+        position: viewState.markdownPanel.position,
+        startX: event.clientX,
+        startY: event.clientY,
+        startSize: viewState.markdownPanel.size
+      };
+    },
+    [viewState.markdownPanel.position, viewState.markdownPanel.size]
+  );
+
+  const handleMarkdownPanelResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const resize = markdownPanelResizeRef.current;
+      if (!resize || resize.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const delta =
+        resize.position === "bottom"
+          ? resize.startY - event.clientY
+          : resize.position === "left"
+            ? event.clientX - resize.startX
+            : resize.startX - event.clientX;
+      handleMarkdownPanelSize(resize.startSize + delta);
+    },
+    [handleMarkdownPanelSize]
+  );
+
+  const stopMarkdownPanelResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const resize = markdownPanelResizeRef.current;
+      if (!resize || resize.pointerId !== event.pointerId) {
+        return;
+      }
+
+      markdownPanelResizeRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
+  );
+
+  const handleMarkdownPanelResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      const position = viewState.markdownPanel.position;
+      const size = viewState.markdownPanel.size;
+      let nextSize: number | null = null;
+
+      if (
+        (position === "bottom" && event.key === "ArrowUp") ||
+        (position === "left" && event.key === "ArrowRight") ||
+        (position === "right" && event.key === "ArrowLeft")
+      ) {
+        nextSize = size + markdownPanelSizeStep;
+      } else if (
+        (position === "bottom" && event.key === "ArrowDown") ||
+        (position === "left" && event.key === "ArrowLeft") ||
+        (position === "right" && event.key === "ArrowRight")
+      ) {
+        nextSize = size - markdownPanelSizeStep;
+      } else if (event.key === "Home") {
+        nextSize = minMarkdownPanelSize;
+      } else if (event.key === "End") {
+        nextSize = maxMarkdownPanelSize;
+      }
+
+      if (nextSize !== null) {
+        event.preventDefault();
+        handleMarkdownPanelSize(nextSize);
+      }
+    },
+    [
+      handleMarkdownPanelSize,
+      viewState.markdownPanel.position,
+      viewState.markdownPanel.size
+    ]
+  );
+
+  const startMarkdownPanelDockDrag = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      markdownPanelDockDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY
+      };
+    },
+    []
+  );
+
+  const handleMarkdownPanelDockDrag = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const drag = markdownPanelDockDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+
+      event.preventDefault();
+    },
+    []
+  );
+
+  const stopMarkdownPanelDockDrag = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const drag = markdownPanelDockDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+
+      markdownPanelDockDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+
+      const deltaX = Math.abs(event.clientX - drag.startX);
+      const deltaY = Math.abs(event.clientY - drag.startY);
+      if (Math.max(deltaX, deltaY) < clickMoveTolerancePx) {
+        return;
+      }
+
+      const layout = event.currentTarget.closest<HTMLElement>(".document-layout");
+      const nextPosition = markdownPanelPositionForPointer(
+        event.clientX,
+        layout?.getBoundingClientRect() ?? null
+      );
+      handleMarkdownPanelPosition(nextPosition);
+    },
+    [handleMarkdownPanelPosition]
+  );
+
+  const handleMarkdownPanelDockKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      const nextPosition =
+        event.key === "ArrowLeft"
+          ? "left"
+          : event.key === "ArrowRight"
+            ? "right"
+            : event.key === "ArrowDown"
+              ? "bottom"
+              : null;
+
+      if (nextPosition !== null) {
+        event.preventDefault();
+        handleMarkdownPanelPosition(nextPosition);
+      }
+    },
+    [handleMarkdownPanelPosition]
+  );
 
   const handleAddRootNode = useCallback(
     (direction: Direction) => {
@@ -1995,6 +2200,11 @@ export function App() {
     "--workspace-pan-x": `${viewState.pan.x}px`,
     "--workspace-pan-y": `${viewState.pan.y}px`
   } as CSSProperties;
+  const documentLayoutStyle = {
+    "--markdown-panel-size": `${viewState.markdownPanel.size}px`
+  } as CSSProperties;
+  const markdownPanelSizeText = `${viewState.markdownPanel.size}px`;
+  const markdownPreviewLines = markdownPreviewLineSegments(activeDocument.source);
   const rootEditing = viewState.editingNodePath === rootNodePath;
   const rootDropTarget =
     nodeDropTarget?.targetPath === rootNodePath ? nodeDropTarget : null;
@@ -2034,6 +2244,12 @@ export function App() {
           return;
         }
 
+        const node = findNode(mindmap!, path);
+        if (node && isTransientEmptyNode(node)) {
+          selectNode(path, true);
+          return;
+        }
+
         const next = addChildNode(mindmap!, path);
         commitMindmap(next, "Add child node", lastChildPath(next, path));
       }}
@@ -2041,6 +2257,12 @@ export function App() {
         const nextPath = nextSiblingNodePath(mindmap!, path);
         if (nextPath !== path) {
           selectNode(nextPath, true);
+          return;
+        }
+
+        const node = findNode(mindmap!, path);
+        if (node && isTransientEmptyNode(node)) {
+          selectNode(path, true);
           return;
         }
 
@@ -2391,113 +2613,163 @@ export function App() {
       {parseResult.ok ? (
         <>
           <section
-            className={`workspace-viewport${isPanning ? " is-panning" : ""}${
-              isNodeDragging ? " is-node-dragging" : ""
-            }`}
-            aria-label="Mindmap canvas"
-            onPointerDown={handleViewportPointerDown}
-            onPointerMove={handleViewportPointerMove}
-            onPointerUp={stopViewportPan}
-            onPointerCancel={stopViewportPan}
-            onWheel={handleViewportWheel}
+            className={`document-layout markdown-${viewState.markdownPanel.position}`}
+            style={documentLayoutStyle}
           >
             <section
-              className={`workspace${leftNodes.length > 0 ? " has-left" : ""}${
-                rightNodes.length > 0 ? " has-right" : ""
+              className={`workspace-viewport${isPanning ? " is-panning" : ""}${
+                isNodeDragging ? " is-node-dragging" : ""
               }`}
-              ref={workspaceRef}
-              style={workspaceStyle}
+              aria-label="Mindmap canvas"
+              onPointerDown={handleViewportPointerDown}
+              onPointerMove={handleViewportPointerMove}
+              onPointerUp={stopViewportPan}
+              onPointerCancel={stopViewportPan}
+              onWheel={handleViewportWheel}
             >
-              <svg className="connector-layer" aria-hidden="true">
-                {connectorPaths.map((connector) => (
-                  <path
-                    key={connector.id}
-                    className={classNames(
-                      connector.virtual && "virtual-connector",
-                      connector.transient && "transient-connector"
-                    )}
-                    d={connector.d}
-                  />
-                ))}
-              </svg>
-              <aside className="branch branch-left" aria-label="Left branch">
-                {(leftNodes.length > 0 || canShowVirtualLeftRoot) && (
-                  <div className="root-child-column">
-                    {leftNodes.map((node) => renderNodeEditor(node, "left"))}
-                    {canShowVirtualLeftRoot && renderVirtualRootEditor("left")}
-                  </div>
-                )}
-              </aside>
-
-              <section className="root-node" aria-label="Root node">
-                <NodeTextArea
-                  className={classNames(
-                    viewState.selectedNodePath === rootNodePath && "selected",
-                    rootEditing && "editing",
-                    searchMatchPaths.has(rootNodePath) && "search-match",
-                    currentSearchPath === rootNodePath && "current-search-match",
-                    rootDropTarget && `drop-${rootDropTarget.position}`,
-                    rootDropTarget?.rootDirection && `drop-${rootDropTarget.rootDirection}`
+              <section
+                className={`workspace${leftNodes.length > 0 ? " has-left" : ""}${
+                  rightNodes.length > 0 ? " has-right" : ""
+                }`}
+                ref={workspaceRef}
+                style={workspaceStyle}
+              >
+                <svg className="connector-layer" aria-hidden="true">
+                  {connectorPaths.map((connector) => (
+                    <path
+                      key={connector.id}
+                      className={classNames(
+                        connector.levelClass,
+                        connector.virtual && "virtual-connector",
+                        connector.transient && "transient-connector"
+                      )}
+                      d={connector.d}
+                    />
+                  ))}
+                </svg>
+                <aside className="branch branch-left" aria-label="Left branch">
+                  {(leftNodes.length > 0 || canShowVirtualLeftRoot) && (
+                    <div className="root-child-column">
+                      {leftNodes.map((node) => renderNodeEditor(node, "left"))}
+                      {canShowVirtualLeftRoot && renderVirtualRootEditor("left")}
+                    </div>
                   )}
-                  path={rootNodePath}
-                  value={mindmap!.title}
-                  width={getRootInputWidth(mindmap!.title)}
-                  ariaLabel="Root heading"
-                  readOnly={!rootEditing}
-                  editOnClick={viewState.selectedNodePath === rootNodePath && !rootEditing}
-                  onFocus={() => selectNode(rootNodePath, rootEditing)}
-                  onEditClick={() => selectNode(rootNodePath, true)}
-                  onToggleSelect={() => selectNode(rootNodePath, false)}
-                  onRangeSelect={() => selectNode(rootNodePath, false)}
-                  onChange={(text) =>
-                    commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
-                  }
-                  onBlur={() => exitEditingIfCurrent(rootNodePath)}
-                  onDragPointerDown={undefined}
-                  onDragPointerMove={undefined}
-                  onDragPointerUp={undefined}
-                  onDragPointerCancel={undefined}
-                  onKeyDown={(event) => {
-                    if (!rootEditing) {
-                      if (event.key === "Enter") {
+                </aside>
+
+                <section className="root-node" aria-label="Root node">
+                  <NodeTextArea
+                    className={classNames(
+                      viewState.selectedNodePath === rootNodePath && "selected",
+                      rootEditing && "editing",
+                      searchMatchPaths.has(rootNodePath) && "search-match",
+                      currentSearchPath === rootNodePath && "current-search-match",
+                      rootDropTarget && `drop-${rootDropTarget.position}`,
+                      rootDropTarget?.rootDirection &&
+                        `drop-${rootDropTarget.rootDirection}`
+                    )}
+                    path={rootNodePath}
+                    value={mindmap!.title}
+                    width={getRootInputWidth(mindmap!.title)}
+                    ariaLabel="Root heading"
+                    readOnly={!rootEditing}
+                    editOnClick={
+                      viewState.selectedNodePath === rootNodePath && !rootEditing
+                    }
+                    onFocus={() => selectNode(rootNodePath, rootEditing)}
+                    onEditClick={() => selectNode(rootNodePath, true)}
+                    onToggleSelect={() => selectNode(rootNodePath, false)}
+                    onRangeSelect={() => selectNode(rootNodePath, false)}
+                    onChange={(text) =>
+                      commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
+                    }
+                    onBlur={() => exitEditingIfCurrent(rootNodePath)}
+                    onDragPointerDown={undefined}
+                    onDragPointerMove={undefined}
+                    onDragPointerUp={undefined}
+                    onDragPointerCancel={undefined}
+                    onKeyDown={(event) => {
+                      if (!rootEditing) {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          selectNode(rootNodePath, true);
+                        }
+                        return;
+                      }
+
+                      if (isImeComposing(event)) {
+                        return;
+                      }
+
+                      if (event.key === "Enter" || (event.key === "Tab" && event.shiftKey)) {
                         event.preventDefault();
                         selectNode(rootNodePath, true);
+                        return;
                       }
-                      return;
-                    }
 
-                    if (isImeComposing(event)) {
-                      return;
-                    }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        selectNode(rootNodePath, false);
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </section>
 
-                    if (event.key === "Enter" || (event.key === "Tab" && event.shiftKey)) {
-                      event.preventDefault();
-                      selectNode(rootNodePath, true);
-                      return;
-                    }
-
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      selectNode(rootNodePath, false);
-                      event.currentTarget.blur();
-                    }
-                  }}
-                />
+                <aside className="branch branch-right" aria-label="Right branch">
+                  {(rightNodes.length > 0 || canShowVirtualRightRoot) && (
+                    <div className="root-child-column">
+                      {rightNodes.map((node) => renderNodeEditor(node, "right"))}
+                      {canShowVirtualRightRoot && renderVirtualRootEditor("right")}
+                    </div>
+                  )}
+                </aside>
               </section>
-
-              <aside className="branch branch-right" aria-label="Right branch">
-                {(rightNodes.length > 0 || canShowVirtualRightRoot) && (
-                  <div className="root-child-column">
-                    {rightNodes.map((node) => renderNodeEditor(node, "right"))}
-                    {canShowVirtualRightRoot && renderVirtualRootEditor("right")}
-                  </div>
-                )}
-              </aside>
             </section>
-          </section>
 
-          <section className="markdown-panel" aria-label="Markdown output">
-            <pre>{activeDocument.source}</pre>
+            <section className="markdown-panel" aria-label="Markdown output">
+              <div
+                className="markdown-resize-handle"
+                role="separator"
+                aria-label="Resize Markdown panel"
+                aria-orientation={
+                  viewState.markdownPanel.position === "bottom"
+                    ? "horizontal"
+                    : "vertical"
+                }
+                aria-valuemin={minMarkdownPanelSize}
+                aria-valuemax={maxMarkdownPanelSize}
+                aria-valuenow={viewState.markdownPanel.size}
+                aria-valuetext={markdownPanelSizeText}
+                tabIndex={0}
+                title="Resize Markdown panel"
+                onPointerDown={startMarkdownPanelResize}
+                onPointerMove={handleMarkdownPanelResize}
+                onPointerUp={stopMarkdownPanelResize}
+                onPointerCancel={stopMarkdownPanelResize}
+                onKeyDown={handleMarkdownPanelResizeKeyDown}
+              />
+              <div className="markdown-panel-toolbar" aria-label="Markdown pane controls">
+                <div
+                  className="markdown-dock-handle"
+                  role="button"
+                  aria-label="Move Markdown pane"
+                  tabIndex={0}
+                  title="Move Markdown pane"
+                  onPointerDown={startMarkdownPanelDockDrag}
+                  onPointerMove={handleMarkdownPanelDockDrag}
+                  onPointerUp={stopMarkdownPanelDockDrag}
+                  onPointerCancel={stopMarkdownPanelDockDrag}
+                  onKeyDown={handleMarkdownPanelDockKeyDown}
+                />
+              </div>
+              <pre>
+                {markdownPreviewLines.map((line, index) => (
+                  <span className={line.className} key={index}>
+                    {line.text}
+                  </span>
+                ))}
+              </pre>
+            </section>
           </section>
 
           {nodeDragSnapLine && (
@@ -2971,6 +3243,7 @@ function NodeEditor({
   const collapsed = collapsedPaths.has(node.path);
   const hasChildren = node.children.length > 0;
   const actionTabIndex = selected || editing ? 0 : -1;
+  const levelClass = nodeLevelClass(node.path);
 
   return (
     <div className={`node-subtree ${side}${collapsed ? " collapsed" : ""}`}>
@@ -2979,6 +3252,7 @@ function NodeEditor({
         <NodeTextArea
           className={classNames(
             "node-input",
+            levelClass,
             selected && "selected",
             selected && !primarySelected && "secondary-selected",
             editing && "editing",
@@ -3120,6 +3394,74 @@ function toSingleLineNodeText(text: string): string {
 
 function classNames(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
+}
+
+function nodeLevelClass(path: string): string {
+  const level = nodeLevelFromPath(path);
+  return level >= 4 ? "node-level-deep" : `node-level-${level}`;
+}
+
+function connectorLevelClass(path: string): string {
+  const level = nodeLevelFromPath(path);
+  return level >= 4 ? "connector-level-deep" : `connector-level-${level}`;
+}
+
+function nodeLevelFromPath(path: string): number {
+  if (!path || isRootNodePath(path) || isVirtualRootPath(path)) {
+    return 0;
+  }
+
+  return Math.max(1, path.split("/").length - 1);
+}
+
+function markdownPanelPositionForPointer(
+  clientX: number,
+  layoutRect: DOMRect | null
+): MarkdownPanelPosition {
+  if (!layoutRect) {
+    return "bottom";
+  }
+
+  const sideBand = Math.max(160, layoutRect.width * 0.26);
+  if (clientX <= layoutRect.left + sideBand) {
+    return "left";
+  }
+
+  if (clientX >= layoutRect.right - sideBand) {
+    return "right";
+  }
+
+  return "bottom";
+}
+
+function markdownPreviewLineSegments(
+  source: string
+): { text: string; className: string }[] {
+  const lines = source.split("\n");
+  return lines.map((line, index) => ({
+    text: index < lines.length - 1 ? `${line}\n` : line,
+    className: `markdown-line ${markdownLineLevelClass(line)}`
+  }));
+}
+
+function markdownLineLevelClass(line: string): string {
+  const listMatch = /^(\s*)-\s?/.exec(line);
+  if (listMatch) {
+    const level = Math.floor(listMatch[1].length / 2) + 1;
+    return level >= 4
+      ? "markdown-line-level-deep"
+      : `markdown-line-level-${level}`;
+  }
+
+  if (/^##\s+/.test(line)) {
+    return "markdown-line-level-1";
+  }
+
+  if (/^#\s*/.test(line)) {
+    return "markdown-line-root";
+  }
+
+  return "markdown-line-plain";
 }
 
 function filteredCommandPaletteCommands(
@@ -4259,6 +4601,7 @@ function buildConnectorPaths(
       if (solidAnchors.length > 0) {
         paths.push({
           id: `${parentPath}->${direction}-children`,
+          levelClass: connectorLevelClass(solidAnchors[0].node.path),
           d: connectorPathToChildren(
             source,
             solidAnchors.map((child) => child.anchor),
