@@ -34,6 +34,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 지연 자동 저장
 - 외부 변경 file watcher + polling, clean 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리
 - 외부 diff 도구 실행용 임시 파일 생성 및 실행 명령
+- 명시적 Markdown 정규화 명령
 - SQLite sidecar 기반 view state 저장
 - 선택 모드 기반 키보드 이동과 다중 선택
 - 키바인딩 도움말
@@ -116,11 +117,11 @@ pnpm tauri dev
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
 - `Cmd+S`: 저장 또는 다른 이름 저장
 - `Cmd+O`: Markdown 파일 열기
+- `Normalize`: CRLF, 마지막 개행, heading/blank trailing spaces, 빈 노드 marker 같은 명확한 파일 형식 문제를 명시적으로 정규화
 - `?` 또는 `Cmd/Ctrl+/`: 키바인딩 도움말
 
 ## 다음 행동
 
-1. 명시적 정규화 명령을 추가한다.
-2. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
-3. 노드별 작은 점/핸들 hover UI를 추가한다.
-4. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
+2. 노드별 작은 점/핸들 hover UI를 추가한다.
+3. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

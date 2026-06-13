@@ -140,6 +140,16 @@ test("toolbar can add right and left root nodes", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n\n## Left\n\n-\n");
 });
 
+test("Normalize reports when markdown is already canonical", async ({ page }) => {
+  const node = nodeInput(page, "right/0");
+  await node.fill("A");
+
+  await page.getByRole("button", { name: "Normalize" }).click();
+
+  await expect(page.locator(".notice")).toContainText("이미 정규화된 Markdown입니다.");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
+});
+
 test("zoom controls can zoom in and reset", async ({ page }) => {
   const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
 

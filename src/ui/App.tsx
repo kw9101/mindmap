@@ -37,6 +37,7 @@ import {
 import type { Diagnostic } from "../core/diagnostics";
 import type { Direction, Mindmap, MindmapNode } from "../core/model";
 import { parseClipboardNodes, serializeNodesForClipboard } from "../core/clipboard";
+import { normalizeMindmapSource } from "../core/normalizer";
 import { parseMindmap } from "../core/parser";
 import { serializeMindmap } from "../core/serializer";
 import {
@@ -196,6 +197,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Cmd/Ctrl+Z", action: "Undo" },
       { keys: "Cmd/Ctrl+Shift+Z", action: "Redo" },
       { keys: "Cmd/Ctrl+Y", action: "Redo" },
+      { keys: "Normalize", action: "Markdown 정규화" },
       { keys: "Cmd/Ctrl++", action: "확대" },
       { keys: "Cmd/Ctrl+-", action: "축소" },
       { keys: "Cmd/Ctrl+0", action: "100%" },
@@ -595,6 +597,28 @@ export function App() {
       await saveCurrent(path);
     }
   }, [activeDocument.file?.path, nativeAvailable, saveCurrent]);
+
+  const handleNormalizeMarkdown = useCallback(() => {
+    const result = normalizeMindmapSource(activeDocument.source);
+    if (!result.ok) {
+      setNotice(
+        formatParseFailureNotice(
+          "Markdown을 정규화할 수 없습니다.",
+          result.diagnostics,
+          result.diagnosticSource
+        )
+      );
+      return;
+    }
+
+    if (!result.changed) {
+      setNotice("이미 정규화된 Markdown입니다.");
+      return;
+    }
+
+    commitSource(result.source, "Normalize Markdown");
+    setNotice("Markdown을 정규화했습니다.");
+  }, [activeDocument.source, commitSource]);
 
   const handleUndo = useCallback(() => {
     setHistory((current) => {
@@ -1488,6 +1512,9 @@ export function App() {
           </button>
           <button type="button" onClick={handleSaveAs}>
             Save As
+          </button>
+          <button type="button" onClick={handleNormalizeMarkdown}>
+            Normalize
           </button>
           <button type="button" onClick={handleUndo} disabled={!canUndo(history)}>
             Undo

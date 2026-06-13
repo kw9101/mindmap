@@ -638,6 +638,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - Tauri command로 Markdown 파일 읽기, 원자적 저장, metadata 읽기, diff 파일 생성, 외부 diff 도구 실행을 구현했다.
 - 외부 변경 감지는 Tauri file watcher와 polling을 함께 사용한다. watcher는 부모 디렉터리를 감시하고 대상 Markdown 파일 경로만 필터링한다.
 - Tauri 파일 접근은 MVP에서 단일 파일 열기/저장부터 시작한다. 작업 폴더/vault 탐색은 후순위다.
+- 명시적 Markdown 정규화 명령을 추가했다. 자동 정규화는 계속 하지 않고, 사용자가 `Normalize`를 누른 경우에만 CRLF, 마지막 개행, heading/blank trailing spaces, 빈 노드 marker 같은 명확한 file-shape 문제를 canonical Markdown으로 고친다.
 - SQLite sidecar는 Markdown 파일 옆의 `{파일명}.mindmap.sqlite`로 시작했다. 현재는 view state key-value 저장소로 사용한다.
 - 줌은 문서 변경이 아니라 앱 전용 view state로 취급한다. 툴바 버튼과 `Cmd/Ctrl + +`, `Cmd/Ctrl + -`, `Cmd/Ctrl + 0` 단축키로 조정하며 SQLite view state에 저장된다.
 - Tauri dialog plugin 권한을 `src-tauri/capabilities/default.json`에 추가했다.
@@ -654,8 +655,7 @@ SQLite에 저장하지 않는 문서 데이터:
 
 ## 17. 남은 구현 후보
 
-1. pan을 UI에 추가하고 SQLite view state에 연결한다.
-2. 명시적 정규화 명령을 추가한다.
-3. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
-4. 노드 옆의 작은 점/핸들을 hover 또는 focus할 때만 자식 추가, 형제 추가, 삭제 버튼을 보이게 한다. 키보드 단축키가 주 조작이며 마우스 버튼은 보조 수단이다.
-5. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. pan 상태 표시 또는 세밀 조절 UI를 추가하고 SQLite view state에 연결한다.
+2. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
+3. 노드 옆의 작은 점/핸들을 hover 또는 focus할 때만 자식 추가, 형제 추가, 삭제 버튼을 보이게 한다. 키보드 단축키가 주 조작이며 마우스 버튼은 보조 수단이다.
+4. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
