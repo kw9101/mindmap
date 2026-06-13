@@ -652,10 +652,10 @@ SQLite에 저장하지 않는 문서 데이터:
 - 노드 접기/펼치기를 추가했다. 접힘 상태는 Markdown이 아니라 view state로 저장하며, 선택 모드 `Space` 또는 노드 토글 버튼으로 조작한다.
 - 큰 마인드맵에서 깊은 노드가 서로 겹치지 않도록 workspace를 content-width 기반으로 확장하고, viewport에서 스크롤할 수 있게 했다.
 - 노드 옆에 상시 노출되던 `+`, `S`, `Del` 액션 버튼을 제거했다. 자식 추가, 형제 추가, 삭제는 키보드 단축키로 수행한다.
-- 검증: Vitest 79개 통과, Playwright e2e 52개 통과, TypeScript check 통과, Vite production build 통과, `cargo check` 통과.
+- 노드 hover/focus 보조 핸들을 추가했다. 기본 화면은 조용하게 유지하고, 필요한 경우 작은 원형 버튼으로 자식 추가, 다음 형제 추가, 삭제를 수행한다.
+- 검증: Vitest 82개 통과, Playwright e2e 56개 통과, TypeScript check 통과, Vite production build 통과, `cargo check` 통과.
 
 ## 17. 남은 구현 후보
 
 1. pan 상태 표시 또는 세밀 조절 UI를 추가하고 SQLite view state에 연결한다.
-2. 노드 옆의 작은 점/핸들을 hover 또는 focus할 때만 자식 추가, 형제 추가, 삭제 버튼을 보이게 한다. 키보드 단축키가 주 조작이며 마우스 버튼은 보조 수단이다.
-3. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+2. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

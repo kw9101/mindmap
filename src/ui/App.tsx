@@ -1429,6 +1429,14 @@ export function App() {
       onTextChange={(path, text) => {
         commitMindmap(updateNodeText(mindmap!, path, text), "Edit node text", path);
       }}
+      onAddChild={(path) => {
+        const next = addChildNode(mindmap!, path);
+        commitMindmap(next, "Add child node", lastChildPath(next, path));
+      }}
+      onAddSibling={(path) => {
+        const next = addSiblingNode(mindmap!, path);
+        commitMindmap(next, "Add sibling node", nextSiblingNodePath(next, path));
+      }}
       onFocusChildOrCreate={(path) => {
         const childPath = firstChildPathForExistingNode(mindmap!, path);
         if (childPath) {
@@ -1986,6 +1994,11 @@ function NodeTextArea({
   );
 }
 
+function preventActionPointerDown(event: PointerEvent<HTMLButtonElement>): void {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 function NodeEditor({
   node,
   side,
@@ -2000,6 +2013,8 @@ function NodeEditor({
   onToggleSelect,
   onExitEditing,
   onTextChange,
+  onAddChild,
+  onAddSibling,
   onFocusChildOrCreate,
   onFocusNextOrCreate,
   onDelete,
@@ -2026,6 +2041,8 @@ function NodeEditor({
   onToggleSelect: (path: string) => void;
   onExitEditing: (path: string) => void;
   onTextChange: (path: string, text: string) => void;
+  onAddChild: (path: string) => void;
+  onAddSibling: (path: string) => void;
   onFocusChildOrCreate: (path: string) => void;
   onFocusNextOrCreate: (path: string) => void;
   onDelete: (path: string) => void;
@@ -2067,6 +2084,8 @@ function NodeEditor({
             onToggleSelect={onToggleSelect}
             onExitEditing={onExitEditing}
             onTextChange={onTextChange}
+            onAddChild={onAddChild}
+            onAddSibling={onAddSibling}
             onFocusChildOrCreate={onFocusChildOrCreate}
             onFocusNextOrCreate={onFocusNextOrCreate}
             onDelete={onDelete}
@@ -2089,6 +2108,7 @@ function NodeEditor({
   const editing = editingPath === node.path;
   const collapsed = collapsedPaths.has(node.path);
   const hasChildren = node.children.length > 0;
+  const actionTabIndex = selected || editing ? 0 : -1;
 
   return (
     <div className={`node-subtree ${side}${collapsed ? " collapsed" : ""}`}>
@@ -2177,6 +2197,50 @@ function NodeEditor({
             {collapsed ? "›" : "⌄"}
           </button>
         )}
+        <div className="node-actions" aria-label={`Node ${node.path} actions`}>
+          <button
+            type="button"
+            className="node-action"
+            aria-label={`Add child to Node ${node.path}`}
+            title="Add child"
+            tabIndex={actionTabIndex}
+            onPointerDown={preventActionPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddChild(node.path);
+            }}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="node-action"
+            aria-label={`Add sibling after Node ${node.path}`}
+            title="Add sibling"
+            tabIndex={actionTabIndex}
+            onPointerDown={preventActionPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddSibling(node.path);
+            }}
+          >
+            ↵
+          </button>
+          <button
+            type="button"
+            className="node-action danger"
+            aria-label={`Delete Node ${node.path}`}
+            title="Delete"
+            tabIndex={actionTabIndex}
+            onPointerDown={preventActionPointerDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete(node.path);
+            }}
+          >
+            ×
+          </button>
+        </div>
       </div>
       {side === "right" && !collapsed && children}
     </div>

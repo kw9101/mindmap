@@ -209,9 +209,9 @@ test("canvas can pan by dragging and reset to center", async ({ page }) => {
 });
 
 test("node action buttons are not shown inline", async ({ page }) => {
-  await expect(page.getByRole("button", { name: "Add child node" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Add sibling node" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Delete node" })).toHaveCount(0);
+  await expect(page.getByRole("button", { exact: true, name: "Add child node" })).toHaveCount(0);
+  await expect(page.getByRole("button", { exact: true, name: "Add sibling node" })).toHaveCount(0);
+  await expect(page.getByRole("button", { exact: true, name: "Delete node" })).toHaveCount(0);
 });
 
 test("keyboard shortcut help opens from the toolbar and closes with Escape", async ({
@@ -280,6 +280,33 @@ test("selection and editing modes have distinct visual states", async ({ page })
   await expect(node).not.toHaveAttribute("readonly", "");
   await expect(node).toHaveClass(/selected/);
   await expect(node).toHaveClass(/editing/);
+});
+
+test("node hover handles add children siblings and delete nodes", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Escape");
+  await expect.poll(() => nodeActionOpacity(page, "right/0")).toBe("1");
+
+  await first.hover();
+  await page
+    .getByRole("button", { exact: true, name: "Add child to Node right/0" })
+    .click();
+  await expect(nodeInput(page, "right/0/0")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  -\n");
+  await nodeInput(page, "right/0/0").fill("Child");
+
+  await first.hover();
+  await page
+    .getByRole("button", { exact: true, name: "Add sibling after Node right/0" })
+    .click();
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  - Child\n-\n");
+
+  await nodeInput(page, "right/1").hover();
+  await page.getByRole("button", { exact: true, name: "Delete Node right/1" }).click();
+  await expect(nodeInput(page, "right/1")).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n  - Child\n");
 });
 
 test("mouse drag moves a node before a sibling", async ({ page }) => {
@@ -1238,6 +1265,13 @@ function markdownOutput(page: Page) {
 
 function nodeInput(page: Page, path: string) {
   return page.locator(`.node-input[data-node-path="${path}"]`);
+}
+
+async function nodeActionOpacity(page: Page, path: string) {
+  return nodeInput(page, path).evaluate((element) => {
+    const actions = element.parentElement?.querySelector<HTMLElement>(".node-actions");
+    return actions ? getComputedStyle(actions).opacity : null;
+  });
 }
 
 function nodeByPath(page: Page, path: string) {
