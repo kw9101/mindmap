@@ -45,8 +45,6 @@ describe("mindmap tree commands", () => {
     const mindmap = createInitialMindmap();
 
     expect(serializeMindmap(mindmap)).toBe(`#
-
--
 `);
   });
 
@@ -84,6 +82,21 @@ describe("mindmap tree commands", () => {
 ## Left
 
 - B
+`);
+  });
+
+  it("can start with only a left root node", () => {
+    let mindmap = createInitialMindmap();
+
+    mindmap = addRootNode(mindmap, "left");
+
+    expect(serializeMindmap(mindmap)).toBe(`#
+
+## Right
+
+## Left
+
+-
 `);
   });
 
@@ -311,7 +324,6 @@ describe("mindmap tree commands", () => {
 
 ## Right
 
-
 ## Left
 
 - A
@@ -530,8 +542,6 @@ describe("mindmap tree commands", () => {
     );
 
     expect(serializeMindmap(mindmap)).toBe(`# Map
-
--
 `);
   });
 
@@ -691,7 +701,6 @@ describe("mindmap tree commands", () => {
     expect(serializeMindmap(result!.mindmap)).toBe(`# Map
 
 ## Right
-
 
 ## Left
 

@@ -25,7 +25,7 @@ export type MoveNodesResult = {
 export function createInitialMindmap(): Mindmap {
   return normalizeMindmap({
     title: "",
-    children: [createNode("right", "")],
+    children: [],
     usesDirectionSections: false,
     sectionOrder: [],
     emptySections: []
@@ -105,7 +105,7 @@ export function deleteNode(mindmap: Mindmap, path: string): Mindmap {
   if (countNodes(next.children) === 0) {
     return normalizeMindmap({
       ...next,
-      children: [createNode("right", "")],
+      children: [],
       usesDirectionSections: false,
       sectionOrder: [],
       emptySections: []
@@ -138,7 +138,7 @@ export function deleteNodes(mindmap: Mindmap, paths: string[]): Mindmap {
   if (countNodes(next.children) === 0) {
     return normalizeMindmap({
       ...next,
-      children: [createNode("right", "")],
+      children: [],
       usesDirectionSections: false,
       sectionOrder: [],
       emptySections: []
@@ -552,9 +552,6 @@ export function firstNodePath(mindmap: Mindmap): string {
 
 export function normalizeMindmap(mindmap: Mindmap): Mindmap {
   const next = cloneMindmap(mindmap);
-  if (next.children.length === 0) {
-    next.children.push(createNode("right", ""));
-  }
 
   const hasLeftRoot = next.children.some((node) => node.direction === "left");
   next.usesDirectionSections = next.usesDirectionSections || hasLeftRoot;

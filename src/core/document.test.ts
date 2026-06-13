@@ -26,8 +26,6 @@ describe("document state", () => {
     const document = createUntitledDocument();
 
     expect(document.source).toBe(`#
-
--
 `);
     expect(document.dirty).toBe(false);
     expect(document.file).toBeNull();

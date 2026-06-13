@@ -21,6 +21,16 @@ function expectCode(source: string, code: string) {
 }
 
 describe("parseMindmap", () => {
+  it("allows an empty mindmap with only a root heading", () => {
+    const mindmap = expectOk(`# Map
+`);
+
+    expect(mindmap.title).toBe("Map");
+    expect(mindmap.children).toEqual([]);
+    expect(serializeMindmap(mindmap)).toBe(`# Map
+`);
+  });
+
   it("parses a simple right-only mindmap", () => {
     const mindmap = expectOk(`# Map
 
@@ -136,6 +146,17 @@ describe("parseMindmap", () => {
 
 - B
 `, "MM015");
+  });
+
+  it("rejects implicit root list items before direction sections", () => {
+    expectCode(`# Map
+
+- A
+
+## Left
+
+- B
+`, "MM007");
   });
 
   it("rejects a second H1", () => {

@@ -515,6 +515,12 @@ kbd {
   vector-effect: non-scaling-stroke;
 }
 
+.connector-layer path.virtual-connector,
+.connector-layer path.transient-connector {
+  stroke: #c8ccd2;
+  stroke-dasharray: 5 5;
+}
+
 .branch {
   min-width: max-content;
   min-height: 320px;
@@ -545,7 +551,8 @@ kbd {
 }
 
 .root-node textarea,
-.node-input {
+.node-input,
+.virtual-node-input {
   border: 1px solid #ccd2d9;
   border-radius: 8px;
   background: #ffffff;
@@ -559,6 +566,12 @@ kbd {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: normal;
+}
+
+.root-node textarea:focus,
+.node-input:focus,
+.virtual-node-input:focus {
+  outline: none;
 }
 
 .root-node textarea.selected,
@@ -582,10 +595,20 @@ kbd {
   caret-color: #0f6f54;
 }
 
-.node-input.transient-empty {
+.node-input.transient-empty,
+.virtual-node-input.transient-empty {
+  border-color: #aeb8c4;
   border-style: dashed;
   background: rgba(255, 255, 255, 0.56);
+  box-shadow: none;
   opacity: 0.62;
+}
+
+.node-input.transient-empty.selected,
+.node-input.transient-empty.editing,
+.virtual-node-input.transient-empty.selected {
+  border-color: #9aa3ad;
+  box-shadow: 0 0 0 3px rgba(174, 184, 196, 0.22);
 }
 
 .root-node textarea.search-match,
@@ -621,7 +644,8 @@ kbd {
 }
 
 .root-node textarea[readonly],
-.node-input[readonly] {
+.node-input[readonly],
+.virtual-node-input[readonly] {
   cursor: default;
   caret-color: transparent;
 }
@@ -1051,7 +1075,8 @@ kbd {
   }
 
   .root-node textarea,
-  .node-input {
+  .node-input,
+  .virtual-node-input {
     max-width: 280px;
   }
 

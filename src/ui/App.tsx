@@ -106,11 +106,18 @@ const autosaveDelayMs = 700;
 const externalPollMs = 2500;
 const nodeDragStartThresholdPx = 6;
 const nodeDropSnapDistancePx = 96;
+const nodeDropInsideSnapDistancePx = 176;
 const clickMoveTolerancePx = 4;
+const virtualRootPaths: Record<Direction, string> = {
+  right: "right/__virtual",
+  left: "left/__virtual"
+};
 
 type ConnectorPath = {
   id: string;
   d: string;
+  virtual?: boolean;
+  transient?: boolean;
 };
 
 type SearchMatch = {
@@ -311,6 +318,10 @@ export function App() {
     mindmap && !isRootNodePath(viewState.selectedNodePath)
       ? findNode(mindmap, viewState.selectedNodePath)
       : null;
+  const rightNodes = mindmap?.children.filter((node) => node.direction === "right") ?? [];
+  const leftNodes = mindmap?.children.filter((node) => node.direction === "left") ?? [];
+  const canShowVirtualRightRoot = mindmap !== null && rightNodes.length === 0;
+  const canShowVirtualLeftRoot = mindmap !== null && leftNodes.length === 0;
 
   const replaceDocument = useCallback((nextDocument: DocumentState, label: string) => {
     setHistory((current) => replacePresent(current, nextDocument, label));
@@ -357,7 +368,10 @@ export function App() {
           selectedNodePath: nextSelectedPath,
           selectedNodePaths: nextSelectedPath ? [nextSelectedPath] : [],
           selectionAnchorPath: nextSelectedPath || null,
-          editingNodePath: editing && nextSelectedPath ? nextSelectedPath : null
+          editingNodePath:
+            editing && nextSelectedPath && !isVirtualRootPath(nextSelectedPath)
+              ? nextSelectedPath
+              : null
         }));
       }
     },
@@ -370,7 +384,7 @@ export function App() {
       selectedNodePath: path,
       selectedNodePaths: path ? [path] : [],
       selectionAnchorPath: path || null,
-      editingNodePath: editing ? path : null
+      editingNodePath: editing && !isVirtualRootPath(path) ? path : null
     }));
   }, []);
 
@@ -580,6 +594,7 @@ export function App() {
         selectionAnchorPath: result.movedPaths[0] ?? nextPrimary,
         editingNodePath: null
       }));
+      focusNodeElementOnNextFrame(nextPrimary);
       return true;
     },
     [
@@ -663,7 +678,9 @@ export function App() {
       setNotice(`열림: ${snapshot.name}`);
 
       const openedResult = parseMindmap(snapshot.contents);
-      const fallbackPath = openedResult.ok ? firstNodePath(openedResult.mindmap) : "";
+      const fallbackPath = openedResult.ok
+        ? selectablePathForMindmap(openedResult.mindmap)
+        : "";
       const storedViewState = await readAppState(snapshot.path, viewStateKey).catch(
         () => null
       );
@@ -785,6 +802,33 @@ export function App() {
     },
     [commitMindmap, mindmap]
   );
+
+  const activateVirtualRoot = useCallback((direction: Direction, initialText = "") => {
+    if (
+      !mindmap ||
+      (direction === "right" && !canShowVirtualRightRoot) ||
+      (direction === "left" && !canShowVirtualLeftRoot)
+    ) {
+      return;
+    }
+
+    const nextWithRoot = addRootNode(mindmap, direction);
+    const newPath = lastRootPath(nextWithRoot, direction);
+    const next =
+      initialText.length > 0
+        ? updateNodeText(nextWithRoot, newPath, initialText)
+        : nextWithRoot;
+    commitMindmap(
+      next,
+      direction === "right" ? "Add right root node" : "Add left root node",
+      newPath
+    );
+  }, [
+    canShowVirtualLeftRoot,
+    canShowVirtualRightRoot,
+    commitMindmap,
+    mindmap
+  ]);
 
   const handleViewportWheel = useCallback((event: WheelEvent<HTMLElement>) => {
     if (event.deltaY === 0) {
@@ -1079,7 +1123,7 @@ export function App() {
   }, [commitMindmap, mindmap, selectedClipboardPaths, viewState.selectedNodePath]);
 
   const handleEditSelectedNode = useCallback(() => {
-    if (!viewState.selectedNodePath) {
+    if (!viewState.selectedNodePath || isVirtualRootPath(viewState.selectedNodePath)) {
       return;
     }
 
@@ -1087,7 +1131,12 @@ export function App() {
   }, [selectNode, viewState.selectedNodePath]);
 
   const handleAddChildToSelectedNode = useCallback(() => {
-    if (!mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath)) {
+    if (
+      !mindmap ||
+      !viewState.selectedNodePath ||
+      isRootNodePath(viewState.selectedNodePath) ||
+      isVirtualRootPath(viewState.selectedNodePath)
+    ) {
       return;
     }
 
@@ -1096,7 +1145,12 @@ export function App() {
   }, [commitMindmap, mindmap, viewState.selectedNodePath]);
 
   const handleAddSiblingAfterSelectedNode = useCallback(() => {
-    if (!mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath)) {
+    if (
+      !mindmap ||
+      !viewState.selectedNodePath ||
+      isRootNodePath(viewState.selectedNodePath) ||
+      isVirtualRootPath(viewState.selectedNodePath)
+    ) {
       return;
     }
 
@@ -1109,7 +1163,11 @@ export function App() {
   }, [commitMindmap, mindmap, viewState.selectedNodePath]);
 
   const handleToggleSelectedNodeCollapse = useCallback(() => {
-    if (!viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath)) {
+    if (
+      !viewState.selectedNodePath ||
+      isRootNodePath(viewState.selectedNodePath) ||
+      isVirtualRootPath(viewState.selectedNodePath)
+    ) {
       return;
     }
 
@@ -1204,7 +1262,8 @@ export function App() {
         id: "edit-selected-node",
         title: "Edit selected node",
         detail: "선택 노드 편집 시작",
-        disabled: !viewState.selectedNodePath,
+        disabled:
+          !viewState.selectedNodePath || isVirtualRootPath(viewState.selectedNodePath),
         keywords: ["node", "edit", "편집"],
         run: handleEditSelectedNode
       },
@@ -1229,7 +1288,10 @@ export function App() {
         title: "Add child node",
         detail: "선택 노드 아래에 자식 추가",
         disabled:
-          !mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath),
+          !mindmap ||
+          !viewState.selectedNodePath ||
+          isRootNodePath(viewState.selectedNodePath) ||
+          isVirtualRootPath(viewState.selectedNodePath),
         keywords: ["node", "add", "child", "자식", "추가"],
         run: handleAddChildToSelectedNode
       },
@@ -1238,7 +1300,10 @@ export function App() {
         title: "Add sibling node",
         detail: "선택 노드 다음에 형제 추가",
         disabled:
-          !mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath),
+          !mindmap ||
+          !viewState.selectedNodePath ||
+          isRootNodePath(viewState.selectedNodePath) ||
+          isVirtualRootPath(viewState.selectedNodePath),
         keywords: ["node", "add", "sibling", "형제", "추가"],
         run: handleAddSiblingAfterSelectedNode
       },
@@ -1401,7 +1466,9 @@ export function App() {
       commitHistory(current, nextDocument, "Reload disk version", documentsEqual)
     );
     const result = parseMindmap(nextDocument.source);
-    setViewState(createDefaultViewState(result.ok ? firstNodePath(result.mindmap) : ""));
+    setViewState(
+      createDefaultViewState(result.ok ? selectablePathForMindmap(result.mindmap) : "")
+    );
     setDiffFiles(null);
   }, [activeDocument]);
 
@@ -1428,7 +1495,9 @@ export function App() {
       if (result.kind === "reloaded") {
         const reloaded = parseMindmap(result.state.source);
         setViewState(
-          createDefaultViewState(reloaded.ok ? firstNodePath(reloaded.mindmap) : "")
+          createDefaultViewState(
+            reloaded.ok ? selectablePathForMindmap(reloaded.mindmap) : ""
+          )
         );
         return commitHistory(
           current,
@@ -1553,10 +1622,11 @@ export function App() {
       return;
     }
 
-    const fallbackPath = firstNodePath(mindmap);
+    const fallbackPath = selectablePathForMindmap(mindmap);
     const validSelectedPaths = selectionPathsForMindmap(mindmap, viewState);
     const selectedPathIsValid =
       isRootNodePath(viewState.selectedNodePath) ||
+      isAvailableVirtualRootPath(mindmap, viewState.selectedNodePath) ||
       (viewState.selectedNodePath && findNode(mindmap, viewState.selectedNodePath));
     const nextSelectedPath = selectedPathIsValid
       ? viewState.selectedNodePath
@@ -1570,7 +1640,9 @@ export function App() {
       (isRootNodePath(viewState.editingNodePath) ||
         findNode(mindmap, viewState.editingNodePath))
         ? viewState.editingNodePath
-        : !viewState.selectedNodePath && nextSelectedPath
+        : !viewState.selectedNodePath &&
+            nextSelectedPath &&
+            !isVirtualRootPath(nextSelectedPath)
           ? nextSelectedPath
           : null;
 
@@ -1595,7 +1667,9 @@ export function App() {
         (isRootNodePath(current.editingNodePath) ||
           findNode(mindmap, current.editingNodePath))
           ? current.editingNodePath
-          : !current.selectedNodePath && nextSelectedPath
+          : !current.selectedNodePath &&
+              nextSelectedPath &&
+              !isVirtualRootPath(nextSelectedPath)
             ? nextSelectedPath
             : null,
       collapsedNodePaths: nextCollapsedPaths
@@ -1618,6 +1692,14 @@ export function App() {
     );
     input?.focus();
   }, [viewState.editingNodePath]);
+
+  useEffect(() => {
+    if (!isVirtualRootPath(viewState.selectedNodePath)) {
+      return;
+    }
+
+    focusNodeElementOnNextFrame(viewState.selectedNodePath);
+  }, [viewState.selectedNodePath]);
 
   useLayoutEffect(() => {
     if (!mindmap) {
@@ -1680,7 +1762,9 @@ export function App() {
       }
 
       const key = event.key.toLowerCase();
-      const editing = viewState.editingNodePath !== null;
+      const editing =
+        viewState.editingNodePath !== null &&
+        !isVirtualRootPath(viewState.editingNodePath);
       if (showKeyboardHelp) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -1706,7 +1790,11 @@ export function App() {
       } else if ((event.metaKey || event.ctrlKey) && event.key === "/") {
         event.preventDefault();
         setShowKeyboardHelp(true);
-      } else if (!editing && (event.key === "?" || (event.shiftKey && event.key === "/"))) {
+      } else if (
+        !editing &&
+        !isVirtualRootPath(viewState.selectedNodePath) &&
+        (event.key === "?" || (event.shiftKey && event.key === "/"))
+      ) {
         event.preventDefault();
         setShowKeyboardHelp(true);
       } else if ((event.metaKey || event.ctrlKey) && key === "f") {
@@ -1749,6 +1837,10 @@ export function App() {
         const moveDirection = modifiedArrowDirectionForEvent(event);
         if (moveDirection) {
           event.preventDefault();
+          if (isVirtualRootPath(viewState.selectedNodePath)) {
+            return;
+          }
+
           moveSelectedNodes(moveDirection);
           return;
         }
@@ -1766,6 +1858,44 @@ export function App() {
           } else {
             selectNodeAndFocus(nextPath, false);
           }
+        } else if (isVirtualRootPath(viewState.selectedNodePath)) {
+          const virtualDirection = virtualRootDirectionForPath(
+            viewState.selectedNodePath
+          );
+          if (!virtualDirection) {
+            return;
+          }
+
+          if (
+            event.key === "Enter" ||
+            ((event.metaKey || event.ctrlKey) && event.key === "Enter") ||
+            (event.key === "Tab" &&
+              !event.shiftKey &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey)
+          ) {
+            event.preventDefault();
+            activateVirtualRoot(virtualDirection);
+          } else if (isPrintableNodeStartEvent(event)) {
+            event.preventDefault();
+            activateVirtualRoot(virtualDirection, event.key);
+          } else if (
+            event.key === "Tab" &&
+            event.shiftKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey
+          ) {
+            event.preventDefault();
+            selectNodeAndFocus(rootNodePath, false);
+          } else if (
+            event.key === " " ||
+            event.key === "Backspace" ||
+            event.key === "Delete"
+          ) {
+            event.preventDefault();
+          }
         } else if (
           event.key === "Tab" &&
           !event.metaKey &&
@@ -1782,7 +1912,7 @@ export function App() {
           }
 
           if (isRootNodePath(viewState.selectedNodePath)) {
-            const childPath = firstNodePath(mindmap);
+            const childPath = selectablePathForMindmap(mindmap);
             if (childPath) {
               selectNodeAndFocus(childPath, false);
             }
@@ -1829,6 +1959,7 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    activateVirtualRoot,
     commitMindmap,
     closeCommandPalette,
     expandNode,
@@ -1859,8 +1990,6 @@ export function App() {
     viewState.selectedNodePath
   ]);
 
-  const rightNodes = mindmap?.children.filter((node) => node.direction === "right") ?? [];
-  const leftNodes = mindmap?.children.filter((node) => node.direction === "left") ?? [];
   const workspaceStyle = {
     "--workspace-zoom": String(viewState.zoom),
     "--workspace-pan-x": `${viewState.pan.x}px`,
@@ -1924,7 +2053,7 @@ export function App() {
         commitMindmap(
           next,
           "Delete node",
-          findNode(next, fallback) ? fallback : firstNodePath(next)
+          findNode(next, fallback) ? fallback : selectablePathForMindmap(next)
         );
       }}
       onDeleteEmpty={(path, nextFocusedNode) => {
@@ -1963,6 +2092,35 @@ export function App() {
       onDragPointerCancel={handleNodeDragPointerCancel}
     />
   );
+  const renderVirtualRootEditor = (direction: Direction) => {
+    const path = virtualRootPath(direction);
+    return (
+      <NodeTextArea
+        className={classNames(
+          "virtual-node-input",
+          "transient-empty",
+          viewState.selectedNodePath === path && "selected"
+        )}
+        path={path}
+        value=""
+        width={getNodeInputWidth("")}
+        ariaLabel={`Start ${direction} node`}
+        readOnly={false}
+        editOnClick={false}
+        onFocus={() => selectNode(path, false)}
+        onEditClick={() => activateVirtualRoot(direction)}
+        onToggleSelect={() => selectNode(path, false)}
+        onRangeSelect={() => selectNode(path, false)}
+        onChange={(text) => activateVirtualRoot(direction, text)}
+        onBlur={() => undefined}
+        onDragPointerDown={undefined}
+        onDragPointerMove={undefined}
+        onDragPointerUp={undefined}
+        onDragPointerCancel={undefined}
+        onKeyDown={() => undefined}
+      />
+    );
+  };
 
   return (
     <main className="app-shell">
@@ -2078,6 +2236,7 @@ export function App() {
                 type="button"
                 aria-label="Add right root node"
                 title="Add right root node"
+                onPointerDown={preventActionPointerDown}
                 onClick={() => handleAddRootNode("right")}
               >
                 +R
@@ -2086,6 +2245,7 @@ export function App() {
                 type="button"
                 aria-label="Add left root node"
                 title="Add left root node"
+                onPointerDown={preventActionPointerDown}
                 onClick={() => handleAddRootNode("left")}
               >
                 +L
@@ -2250,13 +2410,21 @@ export function App() {
             >
               <svg className="connector-layer" aria-hidden="true">
                 {connectorPaths.map((connector) => (
-                  <path key={connector.id} d={connector.d} />
+                  <path
+                    key={connector.id}
+                    className={classNames(
+                      connector.virtual && "virtual-connector",
+                      connector.transient && "transient-connector"
+                    )}
+                    d={connector.d}
+                  />
                 ))}
               </svg>
               <aside className="branch branch-left" aria-label="Left branch">
-                {leftNodes.length > 0 && (
+                {(leftNodes.length > 0 || canShowVirtualLeftRoot) && (
                   <div className="root-child-column">
                     {leftNodes.map((node) => renderNodeEditor(node, "left"))}
+                    {canShowVirtualLeftRoot && renderVirtualRootEditor("left")}
                   </div>
                 )}
               </aside>
@@ -2318,9 +2486,10 @@ export function App() {
               </section>
 
               <aside className="branch branch-right" aria-label="Right branch">
-                {rightNodes.length > 0 && (
+                {(rightNodes.length > 0 || canShowVirtualRightRoot) && (
                   <div className="root-child-column">
                     {rightNodes.map((node) => renderNodeEditor(node, "right"))}
+                    {canShowVirtualRightRoot && renderVirtualRootEditor("right")}
                   </div>
                 )}
               </aside>
@@ -3288,6 +3457,13 @@ function selectionPathsForMindmap(
       : viewState.selectedNodePath
         ? [viewState.selectedNodePath]
         : [];
+  const virtualSelected = candidates.some((path) =>
+    isAvailableVirtualRootPath(mindmap, path)
+  );
+  if (virtualSelected) {
+    return candidates.filter((path) => isAvailableVirtualRootPath(mindmap, path));
+  }
+
   const valid = candidates.filter(
     (path) => isRootNodePath(path) || findNode(mindmap, path)
   );
@@ -3301,6 +3477,56 @@ function selectionPathsForMindmap(
   }
 
   return orderSelectionPaths(mindmap, uniqueStrings(valid));
+}
+
+function selectablePathForMindmap(mindmap: Mindmap): string {
+  return firstNodePath(mindmap) || virtualRootPath("right");
+}
+
+function virtualRootPath(direction: Direction): string {
+  return virtualRootPaths[direction];
+}
+
+function isVirtualRootPath(path: string | null | undefined): boolean {
+  return virtualRootDirectionForPath(path) !== null;
+}
+
+function virtualRootDirectionForPath(
+  path: string | null | undefined
+): Direction | null {
+  if (path === virtualRootPaths.right) {
+    return "right";
+  }
+
+  if (path === virtualRootPaths.left) {
+    return "left";
+  }
+
+  return null;
+}
+
+function isAvailableVirtualRootPath(
+  mindmap: Mindmap,
+  path: string | null | undefined
+): boolean {
+  const direction = virtualRootDirectionForPath(path);
+  return (
+    direction !== null &&
+    !mindmap.children.some((node) => node.direction === direction)
+  );
+}
+
+function isPrintableNodeStartEvent(event: KeyboardEvent): boolean {
+  return (
+    event.key.length === 1 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  );
+}
+
+function isTransientEmptyNode(node: MindmapNode): boolean {
+  return node.text.length === 0 && node.children.length === 0;
 }
 
 function collapsedPathsForMindmap(mindmap: Mindmap | null, paths: string[]): string[] {
@@ -3418,10 +3644,10 @@ function sameStringList(left: string[], right: string[]): boolean {
 
 function selectionPathAfterDelete(mindmap: Mindmap, fallbackPath: string): string {
   if (isRootNodePath(fallbackPath)) {
-    return firstNodePath(mindmap) || rootNodePath;
+    return selectablePathForMindmap(mindmap);
   }
 
-  return findNode(mindmap, fallbackPath) ? fallbackPath : firstNodePath(mindmap);
+  return findNode(mindmap, fallbackPath) ? fallbackPath : selectablePathForMindmap(mindmap);
 }
 
 function remapPathAfterDeleting(
@@ -3556,7 +3782,7 @@ function nearestNodeDropTarget(
 
     const rect = element.getBoundingClientRect();
     const distance = distanceToRect(rect, clientX, clientY);
-    if (distance > nodeDropSnapDistancePx) {
+    if (distance > snapDistanceForDropTarget(target)) {
       continue;
     }
 
@@ -3568,6 +3794,12 @@ function nearestNodeDropTarget(
   }
 
   return bestTarget?.target ?? null;
+}
+
+function snapDistanceForDropTarget(target: NodeDropTarget): number {
+  return target.position === "inside"
+    ? nodeDropInsideSnapDistancePx
+    : nodeDropSnapDistancePx;
 }
 
 function nodeDropTargetForElement(
@@ -3586,6 +3818,16 @@ function nodeDropTargetForElement(
     !workspace.contains(element)
   ) {
     return null;
+  }
+
+  const virtualDirection = virtualRootDirectionForPath(targetPath);
+  if (virtualDirection) {
+    return {
+      sourcePath,
+      targetPath: rootNodePath,
+      position: "inside",
+      rootDirection: virtualDirection
+    };
   }
 
   if (isRootNodePath(targetPath)) {
@@ -3951,8 +4193,15 @@ function buildConnectorPaths(
       return;
     }
 
-    const childAnchors = children
-      .map((child) => {
+    type ConnectorAnchor = {
+      node: MindmapNode;
+      anchor: { x: number; y: number };
+      virtual?: boolean;
+      transient?: boolean;
+    };
+
+    const childAnchors: ConnectorAnchor[] = children
+      .map<ConnectorAnchor | null>((child) => {
         const childElement = nodeElement(workspace, child.path);
         if (!childElement) {
           return null;
@@ -3960,12 +4209,36 @@ function buildConnectorPaths(
 
         return {
           node: child,
-          anchor: nodeAnchor(workspace, childElement, child.direction, "target", zoom)
+          anchor: nodeAnchor(workspace, childElement, child.direction, "target", zoom),
+          transient: isTransientEmptyNode(child)
         };
       })
-      .filter((child): child is { node: MindmapNode; anchor: { x: number; y: number } } =>
-        Boolean(child)
-      );
+      .filter((child): child is ConnectorAnchor => child !== null);
+
+    if (parentPath === rootNodePath) {
+      for (const direction of ["left", "right"] as const) {
+        const path = virtualRootPath(direction);
+        const virtualRoot = nodeElement(workspace, path);
+        if (
+          !virtualRoot ||
+          children.some((child) => child.direction === direction)
+        ) {
+          continue;
+        }
+
+        childAnchors.push({
+          node: {
+            id: path,
+            path,
+            text: "",
+            direction,
+            children: []
+          },
+          anchor: nodeAnchor(workspace, virtualRoot, direction, "target", zoom),
+          virtual: true
+        });
+      }
+    }
 
     for (const direction of ["left", "right"] as const) {
       const directionalAnchors = childAnchors.filter(
@@ -3976,14 +4249,36 @@ function buildConnectorPaths(
       }
 
       const source = nodeAnchor(workspace, parentElement, direction, "source", zoom);
-      paths.push({
-        id: `${parentPath}->${direction}-children`,
-        d: connectorPathToChildren(
-          source,
-          directionalAnchors.map((child) => child.anchor),
-          direction
-        )
-      });
+      const solidAnchors = directionalAnchors.filter(
+        (child) => child.virtual !== true && child.transient !== true
+      );
+      const temporaryAnchors = directionalAnchors.filter(
+        (child) => child.virtual === true || child.transient === true
+      );
+
+      if (solidAnchors.length > 0) {
+        paths.push({
+          id: `${parentPath}->${direction}-children`,
+          d: connectorPathToChildren(
+            source,
+            solidAnchors.map((child) => child.anchor),
+            direction
+          )
+        });
+      }
+
+      if (temporaryAnchors.length > 0) {
+        paths.push({
+          id: `${parentPath}->${direction}-temporary-children`,
+          d: connectorPathToChildren(
+            source,
+            temporaryAnchors.map((child) => child.anchor),
+            direction
+          ),
+          virtual: temporaryAnchors.every((child) => child.virtual === true),
+          transient: temporaryAnchors.some((child) => child.transient === true)
+        });
+      }
     }
 
     for (const child of children) {

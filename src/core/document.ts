@@ -40,8 +40,6 @@ export type ExternalChangeResult =
   | { kind: "conflict"; state: DocumentState };
 
 export const defaultUntitledSource = `#
-
--
 `;
 
 export function createUntitledDocument(): DocumentState {

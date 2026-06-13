@@ -1,6 +1,10 @@
 import type { Direction, Mindmap, MindmapNode } from "./model";
 
 export function serializeMindmap(mindmap: Mindmap): string {
+  if (mindmap.children.length === 0 && !mindmap.usesDirectionSections) {
+    return `${formatH1(mindmap.title)}\n`;
+  }
+
   const lines: string[] = [formatH1(mindmap.title), ""];
 
   if (mindmap.usesDirectionSections) {
@@ -31,7 +35,10 @@ export function serializeMindmap(mindmap: Mindmap): string {
         writeNode(lines, root, 0);
       }
 
-      if (direction !== serializableOrder[serializableOrder.length - 1]) {
+      if (
+        roots.length > 0 &&
+        direction !== serializableOrder[serializableOrder.length - 1]
+      ) {
         lines.push("");
       }
     }

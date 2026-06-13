@@ -52,7 +52,7 @@ export function parseMindmap(source: string): ParseResult {
     };
   }
 
-  if (lines.length < 2 || lines[1] !== "") {
+  if (lines.length > 1 && lines[1] !== "") {
     return {
       ok: false,
       diagnostics: [
@@ -75,7 +75,7 @@ export function parseMindmap(source: string): ParseResult {
   };
 
   let currentDirection: Direction | null = null;
-  let seenAnyList = false;
+  let seenImplicitRootList = false;
   let i = 2;
 
   while (i < lines.length) {
@@ -128,6 +128,19 @@ export function parseMindmap(source: string): ParseResult {
               lineNumber,
               1,
               headingHelp
+            )
+          ]
+        };
+      }
+
+      if (seenImplicitRootList) {
+        return {
+          ok: false,
+          diagnostics: [
+            error(
+              "MM007",
+              "Direction sections cannot be introduced after root list items.",
+              lineNumber
             )
           ]
         };
@@ -196,6 +209,10 @@ export function parseMindmap(source: string): ParseResult {
     }
 
     const direction = currentDirection ?? "right";
+    if (!mindmap.usesDirectionSections && currentDirection === null) {
+      seenImplicitRootList = true;
+    }
+
     if (mindmap.usesDirectionSections && listLine.depth === 0) {
       removeEmptySection(mindmap, direction);
     }
@@ -205,17 +222,7 @@ export function parseMindmap(source: string): ParseResult {
       return { ok: false, diagnostics: [addResult.diagnostic] };
     }
 
-    seenAnyList = true;
     i += 1;
-  }
-
-  if (!seenAnyList) {
-    return {
-      ok: false,
-      diagnostics: [
-        error("MM002", "The mindmap must contain at least one list item.", 1)
-      ]
-    };
   }
 
   return { ok: true, mindmap };
