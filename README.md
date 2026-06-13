@@ -33,6 +33,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 세션 내 undo/redo
 - Tauri command 기반 Markdown 파일 열기/원자적 저장
 - 새 마인드맵 시작과 최근 파일 메뉴
+- 작업 폴더 열기, Markdown 파일 목록 검색/전환, 작업 폴더에 새 파일 생성
 - 지연 자동 저장
 - 외부 변경 file watcher + polling, clean 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리
 - 외부 diff 도구 실행용 임시 파일 생성 및 실행 명령
@@ -137,6 +138,8 @@ pnpm tauri dev
 - `Cmd/Ctrl+N` 또는 `New`: 새 마인드맵 시작. 저장되지 않은 변경이 있으면 확인 후 진행
 - `Cmd+O`: Markdown 파일 열기
 - `Recent`: 최근 열거나 저장한 Markdown 파일 다시 열기
+- `Folder`: 작업 폴더를 열고 폴더 안 Markdown 파일을 검색/전환
+- 작업 폴더 `New File`: 현재 작업 폴더에 새 Markdown 마인드맵 파일 생성
 - `Normalize`: CRLF, 마지막 개행, heading/blank trailing spaces, 빈 노드 marker 같은 명확한 파일 형식 문제를 명시적으로 정규화
 - `?` 또는 `Cmd/Ctrl+/`: 키바인딩 도움말
 

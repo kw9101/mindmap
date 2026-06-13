@@ -39,6 +39,16 @@ pub struct FileMetadata {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceMarkdownFile {
+    path: String,
+    name: String,
+    relative_path: String,
+    mtime_ms: u128,
+    size: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiffFiles {
     app_path: String,
     disk_path: String,
@@ -80,6 +90,28 @@ fn read_markdown_metadata(path: String) -> Result<FileMetadata, String> {
 fn write_markdown_file_atomic(path: String, contents: String) -> Result<FileSnapshot, String> {
     write_atomic(Path::new(&path), &contents)?;
     read_snapshot(Path::new(&path))
+}
+
+#[tauri::command]
+fn list_workspace_markdown_files(directory_path: String) -> Result<Vec<WorkspaceMarkdownFile>, String> {
+    list_markdown_files_in_directory(Path::new(&directory_path))
+}
+
+#[tauri::command]
+fn create_workspace_markdown_file(
+    directory_path: String,
+    file_name: String,
+    contents: String,
+) -> Result<FileSnapshot, String> {
+    let directory = canonical_workspace_directory(Path::new(&directory_path))?;
+    let file_name = workspace_markdown_file_name(&file_name)?;
+    let path = directory.join(file_name);
+    if path.exists() {
+        return Err("A Markdown file with that name already exists.".to_string());
+    }
+
+    write_atomic(&path, &contents)?;
+    read_snapshot(&path)
 }
 
 #[tauri::command]
@@ -278,6 +310,8 @@ pub fn run() {
             read_markdown_file,
             read_markdown_metadata,
             write_markdown_file_atomic,
+            list_workspace_markdown_files,
+            create_workspace_markdown_file,
             read_app_state,
             write_app_state,
             sidecar_path,
@@ -309,6 +343,109 @@ fn read_snapshot(path: &Path) -> Result<FileSnapshot, String> {
         mtime_ms: unix_time_ms(modified)?,
         size: metadata.len(),
     })
+}
+
+fn list_markdown_files_in_directory(root: &Path) -> Result<Vec<WorkspaceMarkdownFile>, String> {
+    let root = canonical_workspace_directory(root)?;
+    let mut files = Vec::new();
+    collect_markdown_files(&root, &root, &mut files)?;
+    files.sort_by(|left, right| {
+        left.relative_path
+            .to_lowercase()
+            .cmp(&right.relative_path.to_lowercase())
+    });
+    Ok(files)
+}
+
+fn collect_markdown_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<WorkspaceMarkdownFile>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(directory).map_err(to_string)?;
+    for entry in entries {
+        let entry = entry.map_err(to_string)?;
+        let path = entry.path();
+        if is_hidden_path(&path) {
+            continue;
+        }
+
+        let file_type = entry.file_type().map_err(to_string)?;
+        if file_type.is_dir() {
+            collect_markdown_files(root, &path, files)?;
+            continue;
+        }
+
+        if !file_type.is_file() || !is_markdown_path(&path) {
+            continue;
+        }
+
+        let metadata = entry.metadata().map_err(to_string)?;
+        let modified = metadata.modified().map_err(to_string)?;
+        files.push(WorkspaceMarkdownFile {
+            path: path.to_string_lossy().to_string(),
+            name: path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("untitled.md")
+                .to_string(),
+            relative_path: path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string(),
+            mtime_ms: unix_time_ms(modified)?,
+            size: metadata.len(),
+        });
+    }
+
+    Ok(())
+}
+
+fn canonical_workspace_directory(path: &Path) -> Result<PathBuf, String> {
+    let directory = path.canonicalize().map_err(to_string)?;
+    if !directory.is_dir() {
+        return Err("Workspace path is not a directory.".to_string());
+    }
+
+    Ok(directory)
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            let extension = extension.to_lowercase();
+            extension == "md" || extension == "markdown"
+        })
+        .unwrap_or(false)
+}
+
+fn is_hidden_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with('.'))
+        .unwrap_or(false)
+}
+
+fn workspace_markdown_file_name(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("File name is empty.".to_string());
+    }
+
+    let path = Path::new(trimmed);
+    if path.components().count() != 1 || trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("File name cannot include a path.".to_string());
+    }
+
+    let mut file_name = trimmed.to_string();
+    let lower = file_name.to_lowercase();
+    if !lower.ends_with(".md") && !lower.ends_with(".markdown") {
+        file_name.push_str(".md");
+    }
+
+    Ok(file_name)
 }
 
 fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
@@ -455,6 +592,42 @@ mod tests {
         assert!(sidecar_path_for(&document_path)
             .unwrap()
             .ends_with("map.md.mindmap.sqlite"));
+    }
+
+    #[test]
+    fn lists_workspace_markdown_files_recursively() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let project_dir = root.join("projects");
+        let hidden_dir = root.join(".hidden");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::create_dir_all(&hidden_dir).unwrap();
+        fs::write(root.join("Daily.md"), "# Daily\n\n-\n").unwrap();
+        fs::write(project_dir.join("Roadmap.markdown"), "# Roadmap\n\n-\n").unwrap();
+        fs::write(root.join("notes.txt"), "skip").unwrap();
+        fs::write(hidden_dir.join("Secret.md"), "# Secret\n\n-\n").unwrap();
+
+        let files = list_markdown_files_in_directory(root).unwrap();
+        let relative_paths: Vec<String> = files.into_iter().map(|file| file.relative_path).collect();
+
+        assert_eq!(relative_paths, vec!["Daily.md", "projects/Roadmap.markdown"]);
+    }
+
+    #[test]
+    fn creates_workspace_markdown_files_with_safe_names() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let snapshot = create_workspace_markdown_file(
+            temp_dir.path().to_string_lossy().to_string(),
+            "idea".to_string(),
+            "#\n".to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.name, "idea.md");
+        assert_eq!(snapshot.contents, "#\n");
+        assert!(temp_dir.path().join("idea.md").exists());
+        assert!(workspace_markdown_file_name("../escape").is_err());
+        assert!(workspace_markdown_file_name("folder/name").is_err());
     }
 
     #[test]

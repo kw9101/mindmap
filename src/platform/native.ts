@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { FileSnapshot } from "../core/document";
+import type { WorkspaceMarkdownFile } from "../core/workspace";
 
 export type FileMetadata = Omit<FileSnapshot, "contents">;
 
@@ -56,6 +57,20 @@ export async function pickSaveMarkdownPath(defaultPath?: string): Promise<string
   });
 }
 
+export async function pickWorkspaceDirectoryPath(): Promise<string | null> {
+  if (!isNativeAvailable()) {
+    return null;
+  }
+
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const selected = await open({
+    directory: true,
+    multiple: false
+  });
+
+  return typeof selected === "string" ? selected : null;
+}
+
 export async function readMarkdownFile(path: string): Promise<FileSnapshot> {
   return invoke<FileSnapshot>("read_markdown_file", { path });
 }
@@ -69,6 +84,26 @@ export async function writeMarkdownFileAtomic(
   contents: string
 ): Promise<FileSnapshot> {
   return invoke<FileSnapshot>("write_markdown_file_atomic", { path, contents });
+}
+
+export async function listWorkspaceMarkdownFiles(
+  directoryPath: string
+): Promise<WorkspaceMarkdownFile[]> {
+  return invoke<WorkspaceMarkdownFile[]>("list_workspace_markdown_files", {
+    directoryPath
+  });
+}
+
+export async function createWorkspaceMarkdownFile(
+  directoryPath: string,
+  fileName: string,
+  contents: string
+): Promise<FileSnapshot> {
+  return invoke<FileSnapshot>("create_workspace_markdown_file", {
+    directoryPath,
+    fileName,
+    contents
+  });
 }
 
 export async function readAppState(

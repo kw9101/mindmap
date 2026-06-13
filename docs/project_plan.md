@@ -639,7 +639,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - 문서 상태 머신은 `src/core/document.ts`에 구현했다: clean/dirty, pending/saving/error, clean 외부 변경 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리.
 - Tauri command로 Markdown 파일 읽기, 원자적 저장, metadata 읽기, diff 파일 생성, 외부 diff 도구 실행을 구현했다.
 - 외부 변경 감지는 Tauri file watcher와 polling을 함께 사용한다. watcher는 부모 디렉터리를 감시하고 대상 Markdown 파일 경로만 필터링한다.
-- Tauri 파일 접근은 MVP에서 단일 파일 열기/저장부터 시작한다. 작업 폴더/vault 탐색은 후순위다.
+- Tauri 파일 접근은 단일 파일 열기/저장을 기본으로 하고, 작업 폴더를 열어 폴더 안 Markdown 파일을 검색/전환하는 흐름까지 추가했다.
 - 명시적 Markdown 정규화 명령을 추가했다. 자동 정규화는 계속 하지 않고, 사용자가 `Normalize`를 누른 경우에만 CRLF, 마지막 개행, heading/blank trailing spaces, 빈 노드 marker 같은 명확한 file-shape 문제를 canonical Markdown으로 고친다.
 - SQLite sidecar는 Markdown 파일 옆의 `{파일명}.mindmap.sqlite`로 시작했다. 현재는 view state key-value 저장소로 사용한다.
 - 줌은 문서 변경이 아니라 앱 전용 view state로 취급한다. 툴바 버튼과 `Cmd/Ctrl + +`, `Cmd/Ctrl + -`, `Cmd/Ctrl + 0` 단축키로 조정하며 SQLite view state에 저장된다.
@@ -660,6 +660,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - Tauri file watcher 생성 경로를 테스트 가능한 함수로 분리하고, 같은 경로를 사용하는 ignored stress test를 추가했다. `pnpm test:tauri:watch`는 기본 120회, 250ms 간격 반복 쓰기로 대상 Markdown 변경 이벤트를 확인한다.
 - 노드 검색 UI를 추가했다. `Cmd/Ctrl+F`로 검색창에 포커스하고, 검색어 match를 highlight하고, 다음/이전 결과로 이동하며, 접힌 조상은 자동으로 펼쳐 결과를 보이게 한다.
 - 커맨드 팔렛트를 추가했다. `Cmd/Ctrl+K` 또는 `Cmd/Ctrl+Shift+P`로 열고, 명령 이름/키워드로 검색한 뒤 `Enter`로 검색, 파일, 히스토리, 노드 편집, 클립보드, 줌/팬, 도움말 명령을 실행한다.
+- 작업 폴더 브라우저를 추가했다. `Folder`로 폴더를 선택하고, 재귀적으로 수집한 `.md`/`.markdown` 파일을 검색해 전환하며, 현재 작업 폴더에 새 Markdown 마인드맵 파일을 바로 만들 수 있다.
 - 좌/우 루트가 비어 있으면 Markdown에 즉시 저장되지 않는 가상 시작 노드를 표시한다. 가상 노드와 빈 리프 노드 connector는 점선으로 표시한다.
 - 노드 드래그에서 좌우로 자식처럼 붙이는 `inside` snap 반경을 위/아래 sibling snap보다 넓게 적용한다.
 - 검증: Vitest 86개 통과, Playwright e2e 68개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.

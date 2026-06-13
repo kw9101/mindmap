@@ -68,6 +68,54 @@ test("recent files remembers opened markdown and can reopen it", async ({
   await expect(page.getByText("최근 파일이 없습니다.")).toBeVisible();
 });
 
+test("workspace folder lists filters opens and creates markdown files", async ({
+  page
+}) => {
+  await mockTauriWorkspace(page, {
+    directoryPath: "/tmp/vault",
+    files: {
+      "/tmp/vault/Daily.md": "# Daily\n\n- Today\n",
+      "/tmp/vault/projects/Roadmap.md": "# Roadmap\n\n- Milestone\n"
+    }
+  });
+
+  await page.getByRole("button", { name: "Folder" }).click();
+
+  const workspace = page.getByRole("region", { name: "Workspace files" });
+  await expect(workspace).toBeVisible();
+  await expect(workspace.getByText("/tmp/vault")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Open workspace file projects/Roadmap.md" })
+  ).toBeVisible();
+
+  await page.getByLabel("Search workspace files").fill("road");
+  await expect(
+    page.getByRole("button", { name: "Open workspace file projects/Roadmap.md" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Open workspace file Daily.md" })
+  ).toHaveCount(0);
+
+  await page
+    .getByRole("button", { name: "Open workspace file projects/Roadmap.md" })
+    .click();
+
+  await expect(page.locator(".file-name")).toHaveText("Roadmap.md");
+  await expect(nodeInput(page, "right/0")).toHaveValue("Milestone");
+
+  await page.getByLabel("Search workspace files").fill("");
+  page.on("dialog", (dialog) => {
+    void dialog.accept(dialog.type() === "prompt" ? "Idea" : undefined);
+  });
+  await page.getByRole("button", { name: "New workspace file" }).click();
+
+  await expect(page.locator(".file-name")).toHaveText("Idea.md");
+  await expect(markdownOutput(page)).toHaveText("#\n");
+  await expect(
+    page.getByRole("button", { name: "Open workspace file Idea.md" })
+  ).toBeVisible();
+});
+
 test("layout overview mirrors the visible mindmap", async ({ page }) => {
   await expect(page.locator(".layout-overview")).toBeVisible();
   await expect(page.locator(".layout-overview-node")).toHaveCount(3);
@@ -639,12 +687,26 @@ test("node search highlights matches and jumps between nodes", async ({ page }) 
 
   await expect(page.getByLabel("Search result count")).toHaveText("2/2");
   await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/1")).toHaveClass(/current-search-match/);
   await expect(nodeInput(page, "right/1")).toHaveAttribute("readonly", "");
+  await expect(elementBorderColor(nodeInput(page, "right/1"))).resolves.toBe(
+    "rgb(77, 136, 255)"
+  );
+  await expect(elementBoxShadow(nodeInput(page, "right/1"))).resolves.toContain(
+    "rgb(77, 136, 255) 0px 0px 0px 5px"
+  );
 
   await page.getByRole("button", { name: "Previous search match" }).click();
 
   await expect(page.getByLabel("Search result count")).toHaveText("1/2");
   await expect(nodeInput(page, "right/0")).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/0")).toHaveClass(/current-search-match/);
+  await expect(elementBorderColor(nodeInput(page, "right/0"))).resolves.toBe(
+    "rgb(77, 136, 255)"
+  );
+  await expect(elementBoxShadow(nodeInput(page, "right/0"))).resolves.toContain(
+    "rgb(77, 136, 255) 0px 0px 0px 5px"
+  );
 });
 
 test("node search expands collapsed ancestors before selecting a match", async ({
@@ -1744,6 +1806,38 @@ test("sibling connectors share one branch trunk", async ({ page }) => {
   expect(connectorPath).toContain(" L ");
 });
 
+test("third child connector curves do not loop backward", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+
+  let child = nodeInput(page, "right/0/0");
+  for (let index = 0; index < 3; index += 1) {
+    await child.fill(`Child ${index + 1}`);
+    if (index < 2) {
+      await child.press("Enter");
+      child = nodeInput(page, `right/0/${index + 1}`);
+    }
+  }
+
+  const childConnectorPath = await page
+    .locator(".connector-layer path.connector-level-2")
+    .getAttribute("d");
+
+  expect(childConnectorPath).not.toBeNull();
+  const segments = cubicSegmentsFromPath(childConnectorPath!);
+  expect(segments.length).toBeGreaterThan(0);
+
+  for (const segment of segments) {
+    const minX = Math.min(segment.startX, segment.endX) - 0.1;
+    const maxX = Math.max(segment.startX, segment.endX) + 0.1;
+    expect(segment.control1X).toBeGreaterThanOrEqual(minX);
+    expect(segment.control1X).toBeLessThanOrEqual(maxX);
+    expect(segment.control2X).toBeGreaterThanOrEqual(minX);
+    expect(segment.control2X).toBeLessThanOrEqual(maxX);
+  }
+});
+
 test("IME composing Enter does not create a sibling node", async ({ page }) => {
   await virtualRightRootInput(page).focus();
   const firstNode = nodeInput(page, "right/0");
@@ -2007,6 +2101,50 @@ async function connectorLayoutSnapshot(page: Page) {
   });
 }
 
+type CubicSegment = {
+  startX: number;
+  endX: number;
+  control1X: number;
+  control2X: number;
+};
+
+function cubicSegmentsFromPath(d: string): CubicSegment[] {
+  const tokens = d.match(/[A-Za-z]|-?\d+(?:\.\d+)?/g) ?? [];
+  const segments: CubicSegment[] = [];
+  let index = 0;
+  let currentX = 0;
+
+  while (index < tokens.length) {
+    const command = tokens[index];
+    index += 1;
+
+    if (command === "M" || command === "L") {
+      currentX = Number.parseFloat(tokens[index]);
+      index += 2;
+      continue;
+    }
+
+    if (command === "C") {
+      const control1X = Number.parseFloat(tokens[index]);
+      const control2X = Number.parseFloat(tokens[index + 2]);
+      const endX = Number.parseFloat(tokens[index + 4]);
+      segments.push({
+        startX: currentX,
+        endX,
+        control1X,
+        control2X
+      });
+      currentX = endX;
+      index += 6;
+      continue;
+    }
+
+    throw new Error(`Unsupported path command: ${command}`);
+  }
+
+  return segments;
+}
+
 async function sideBySideLayout(
   panel: ReturnType<Page["locator"]>,
   canvas: ReturnType<Page["locator"]>
@@ -2229,6 +2367,118 @@ async function mockTauriMarkdownFiles(
     },
     { sourceByPath: files, selectedPath: openPath }
   );
+  await page.reload();
+  await expect(page.getByText("clean")).toBeVisible();
+}
+
+async function mockTauriWorkspace(
+  page: Page,
+  options: {
+    directoryPath: string;
+    files: Record<string, string>;
+  }
+): Promise<void> {
+  await page.addInitScript(({ directoryPath, files }) => {
+    let callbackId = 0;
+    const callbacks = new Map<number, unknown>();
+    const sourceByPath: Record<string, string> = { ...files };
+
+    const snapshotFor = (path: string) => {
+      const contents = sourceByPath[path];
+      if (contents === undefined) {
+        throw new Error("file not found");
+      }
+
+      return {
+        path,
+        name: path.split(/[\\/]/).pop() ?? path,
+        contents,
+        hash: `mock-hash-${path}-${contents.length}`,
+        mtimeMs: contents.length,
+        size: contents.length
+      };
+    };
+
+    const workspaceFiles = () =>
+      Object.keys(sourceByPath)
+        .filter((path) => path.startsWith(`${directoryPath}/`))
+        .filter((path) => /\.(md|markdown)$/i.test(path))
+        .sort((left, right) => left.localeCompare(right))
+        .map((path) => {
+          const snapshot = snapshotFor(path);
+          const { contents: _contents, hash: _hash, ...metadata } = snapshot;
+          return {
+            ...metadata,
+            relativePath: path.slice(directoryPath.length + 1)
+          };
+        });
+
+    window.__TAURI_INTERNALS__ = {
+      transformCallback(callback: unknown) {
+        callbackId += 1;
+        callbacks.set(callbackId, callback);
+        return callbackId;
+      },
+      unregisterCallback(id: number) {
+        callbacks.delete(id);
+      },
+      async invoke(command: string, args?: Record<string, unknown>) {
+        if (command === "plugin:dialog|open") {
+          const options = args?.options as { directory?: boolean } | undefined;
+          return options?.directory ? directoryPath : `${directoryPath}/Daily.md`;
+        }
+
+        if (command === "read_markdown_file") {
+          return snapshotFor(String(args?.path ?? ""));
+        }
+
+        if (command === "read_markdown_metadata") {
+          const { contents: _contents, ...metadata } = snapshotFor(
+            String(args?.path ?? "")
+          );
+          return metadata;
+        }
+
+        if (command === "list_workspace_markdown_files") {
+          return workspaceFiles();
+        }
+
+        if (command === "create_workspace_markdown_file") {
+          const rawName = String(args?.fileName ?? "").trim();
+          const fileName = /\.(md|markdown)$/i.test(rawName)
+            ? rawName
+            : `${rawName}.md`;
+          const path = `${String(args?.directoryPath ?? directoryPath)}/${fileName}`;
+          if (sourceByPath[path] !== undefined) {
+            throw new Error("A Markdown file with that name already exists.");
+          }
+
+          sourceByPath[path] = String(args?.contents ?? "#\n");
+          return snapshotFor(path);
+        }
+
+        if (
+          command === "read_app_state" ||
+          command === "write_app_state" ||
+          command === "watch_markdown_file" ||
+          command === "unwatch_markdown_file"
+        ) {
+          return null;
+        }
+
+        if (command === "plugin:event|listen") {
+          return "mock-event-listener";
+        }
+
+        return null;
+      }
+    };
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener() {
+        return undefined;
+      }
+    };
+  }, options);
   await page.reload();
   await expect(page.getByText("clean")).toBeVisible();
 }

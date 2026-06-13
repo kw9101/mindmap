@@ -17,6 +17,7 @@ import {
   chooseAppVersion,
   chooseDiskVersion,
   createUntitledDocument,
+  defaultUntitledSource,
   editDocument,
   markSaveFailed,
   markSaved,
@@ -97,11 +98,23 @@ import {
   type RecentFile
 } from "../core/recentFiles";
 import {
+  filterWorkspaceFiles,
+  parseWorkspaceDirectory,
+  serializeWorkspaceDirectory,
+  workspaceDirectoryName,
+  workspaceDirectoryStorageKey,
+  type WorkspaceDirectory,
+  type WorkspaceMarkdownFile
+} from "../core/workspace";
+import {
+  createWorkspaceMarkdownFile,
   isNativeAvailable,
+  listWorkspaceMarkdownFiles,
   listenMarkdownFileChanged,
   openExternalDiff,
   pickOpenMarkdownPath,
   pickSaveMarkdownPath,
+  pickWorkspaceDirectoryPath,
   readAppState,
   readClipboardText,
   readMarkdownFile,
@@ -316,6 +329,11 @@ export function App() {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() =>
     readRecentFilesFromStorage()
   );
+  const [workspaceDirectory, setWorkspaceDirectory] =
+    useState<WorkspaceDirectory | null>(() => readWorkspaceDirectoryFromStorage());
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceMarkdownFile[]>([]);
+  const [workspaceQuery, setWorkspaceQuery] = useState("");
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [isNodeDragging, setIsNodeDragging] = useState(false);
   const [nodeDropTarget, setNodeDropTarget] = useState<NodeDropTarget | null>(null);
@@ -343,6 +361,7 @@ export function App() {
     null
   );
   const nodeDragRef = useRef<NodeDragSession | null>(null);
+  const suppressVirtualRootFocusRef = useRef(false);
 
   const activeDocument = history.present.value;
   const parseResult = useMemo(
@@ -395,6 +414,11 @@ export function App() {
   const leftNodes = mindmap?.children.filter((node) => node.direction === "left") ?? [];
   const canShowVirtualRightRoot = mindmap !== null && rightNodes.length === 0;
   const canShowVirtualLeftRoot = mindmap !== null && leftNodes.length === 0;
+  const filteredWorkspaceFiles = useMemo(
+    () => filterWorkspaceFiles(workspaceFiles, workspaceQuery),
+    [workspaceFiles, workspaceQuery]
+  );
+  const activeWorkspaceFilePath = activeDocument.file?.path ?? null;
 
   const replaceDocument = useCallback((nextDocument: DocumentState, label: string) => {
     setHistory((current) => replacePresent(current, nextDocument, label));
@@ -496,14 +520,6 @@ export function App() {
 
   const openSnapshotDocument = useCallback(
     async (snapshot: FileSnapshot) => {
-      const nextDocument = openDocument(snapshot);
-      setHistory(createHistory(nextDocument, `Open ${snapshot.name}`));
-      setDiffFiles(null);
-      setSearchQuery("");
-      setSearchCursor(0);
-      setNotice(`열림: ${snapshot.name}`);
-      rememberFileSnapshot(snapshot);
-
       const openedResult = parseMindmap(snapshot.contents);
       const fallbackPath = openedResult.ok
         ? selectablePathForMindmap(openedResult.mindmap)
@@ -511,9 +527,60 @@ export function App() {
       const storedViewState = await readAppState(snapshot.path, viewStateKey).catch(
         () => null
       );
-      setViewState(parseViewState(storedViewState, fallbackPath));
+      const nextViewState = parseViewState(storedViewState, fallbackPath);
+      const nextDocument = openDocument(snapshot);
+      suppressVirtualRootFocusRef.current = true;
+      window.requestAnimationFrame(() => {
+        suppressVirtualRootFocusRef.current = false;
+      });
+      setHistory(createHistory(nextDocument, `Open ${snapshot.name}`));
+      setDiffFiles(null);
+      setSearchQuery("");
+      setSearchCursor(0);
+      setNotice(`열림: ${snapshot.name}`);
+      rememberFileSnapshot(snapshot);
+      setViewState(nextViewState);
     },
     [rememberFileSnapshot]
+  );
+
+  const loadWorkspaceFiles = useCallback(
+    async (directory: WorkspaceDirectory, showNotice = false) => {
+      if (!nativeAvailable) {
+        setWorkspaceFiles([]);
+        if (showNotice) {
+          setNotice("작업 폴더는 Tauri 데스크톱 실행에서 사용할 수 있습니다.");
+        }
+        return;
+      }
+
+      setWorkspaceLoading(true);
+      try {
+        const files = await listWorkspaceMarkdownFiles(directory.path);
+        setWorkspaceFiles(files);
+        if (showNotice) {
+          setNotice(`작업 폴더: ${directory.name} (${files.length} files)`);
+        }
+      } catch (error) {
+        setWorkspaceFiles([]);
+        setNotice(`작업 폴더 파일을 읽을 수 없습니다: ${errorMessage(error)}`);
+      } finally {
+        setWorkspaceLoading(false);
+      }
+    },
+    [nativeAvailable]
+  );
+
+  const persistWorkspaceDirectory = useCallback(
+    (directory: WorkspaceDirectory | null) => {
+      setWorkspaceDirectory(directory);
+      writeWorkspaceDirectoryToStorage(directory);
+      if (directory === null) {
+        setWorkspaceFiles([]);
+        setWorkspaceQuery("");
+      }
+    },
+    []
   );
 
   useEffect(() => {
@@ -767,6 +834,9 @@ export function App() {
         });
         setNotice(`저장됨: ${snapshot.name}`);
         rememberFileSnapshot(snapshot);
+        if (workspaceDirectory) {
+          void loadWorkspaceFiles(workspaceDirectory);
+        }
       } catch (error) {
         setHistory((current) =>
           replacePresent(
@@ -777,7 +847,13 @@ export function App() {
         );
       }
     },
-    [activeDocument, rememberFileSnapshot, replaceDocument]
+    [
+      activeDocument,
+      loadWorkspaceFiles,
+      rememberFileSnapshot,
+      replaceDocument,
+      workspaceDirectory
+    ]
   );
 
   const handleNew = useCallback(() => {
@@ -792,6 +868,105 @@ export function App() {
     setSearchCursor(0);
     setNotice("새 마인드맵을 시작했습니다.");
   }, [activeDocument]);
+
+  const handleOpenWorkspace = useCallback(async () => {
+    if (!nativeAvailable) {
+      setNotice("작업 폴더 열기는 Tauri 데스크톱 실행에서 사용할 수 있습니다.");
+      return;
+    }
+
+    const path = await pickWorkspaceDirectoryPath();
+    if (!path) {
+      return;
+    }
+
+    const directory = {
+      path,
+      name: workspaceDirectoryName(path)
+    };
+    persistWorkspaceDirectory(directory);
+    await loadWorkspaceFiles(directory, true);
+  }, [loadWorkspaceFiles, nativeAvailable, persistWorkspaceDirectory]);
+
+  const handleRefreshWorkspace = useCallback(async () => {
+    if (!workspaceDirectory) {
+      return;
+    }
+
+    await loadWorkspaceFiles(workspaceDirectory, true);
+  }, [loadWorkspaceFiles, workspaceDirectory]);
+
+  const handleCloseWorkspace = useCallback(() => {
+    persistWorkspaceDirectory(null);
+    setNotice("작업 폴더를 닫았습니다.");
+  }, [persistWorkspaceDirectory]);
+
+  const handleOpenWorkspaceFile = useCallback(
+    async (path: string) => {
+      if (!nativeAvailable) {
+        setNotice("작업 폴더 파일 열기는 Tauri 데스크톱 실행에서 사용할 수 있습니다.");
+        return;
+      }
+
+      if (!confirmDiscardDirtyDocument(activeDocument)) {
+        return;
+      }
+
+      try {
+        const snapshot = await readMarkdownFile(path);
+        await openSnapshotDocument(snapshot);
+      } catch (error) {
+        setNotice(`작업 폴더 파일을 열 수 없습니다: ${errorMessage(error)}`);
+      }
+    },
+    [activeDocument, nativeAvailable, openSnapshotDocument]
+  );
+
+  const handleCreateWorkspaceFile = useCallback(async () => {
+    if (!workspaceDirectory) {
+      setNotice("먼저 작업 폴더를 열어주세요.");
+      return;
+    }
+
+    if (!nativeAvailable) {
+      setNotice("작업 폴더 파일 생성은 Tauri 데스크톱 실행에서 사용할 수 있습니다.");
+      return;
+    }
+
+    if (!confirmDiscardDirtyDocument(activeDocument)) {
+      return;
+    }
+
+    const fileName = window.prompt("새 Markdown 파일 이름", "untitled.md");
+    if (fileName === null) {
+      return;
+    }
+
+    try {
+      const snapshot = await createWorkspaceMarkdownFile(
+        workspaceDirectory.path,
+        fileName,
+        defaultUntitledSource
+      );
+      await openSnapshotDocument(snapshot);
+      setViewState((current) => ({
+        ...createDefaultViewState(rootNodePath),
+        editingNodePath: null,
+        markdownPanel: current.markdownPanel
+      }));
+      setWorkspaceQuery("");
+      await loadWorkspaceFiles(workspaceDirectory);
+      setNotice(`새 파일 생성: ${snapshot.name}`);
+    } catch (error) {
+      setNotice(`작업 폴더 파일을 만들 수 없습니다: ${errorMessage(error)}`);
+    }
+  }, [
+    activeDocument,
+    loadWorkspaceFiles,
+    nativeAvailable,
+    openSnapshotDocument,
+    workspaceDirectory
+  ]);
 
   const handleOpen = useCallback(async () => {
     if (!nativeAvailable) {
@@ -1563,6 +1738,36 @@ export function App() {
         run: handleOpen
       },
       {
+        id: "open-workspace",
+        title: "Open folder",
+        detail: "작업 폴더 열기",
+        keywords: ["folder", "workspace", "vault", "폴더", "작업"],
+        run: handleOpenWorkspace
+      },
+      {
+        id: "new-workspace-file",
+        title: "New workspace file",
+        detail: "현재 작업 폴더에 Markdown 파일 생성",
+        disabled: !workspaceDirectory,
+        keywords: ["folder", "workspace", "new", "새", "파일"],
+        run: handleCreateWorkspaceFile
+      },
+      {
+        id: "refresh-workspace",
+        title: "Refresh workspace",
+        detail: "작업 폴더 파일 목록 새로고침",
+        disabled: !workspaceDirectory,
+        keywords: ["folder", "workspace", "refresh", "새로고침"],
+        run: handleRefreshWorkspace
+      },
+      ...workspaceFiles.slice(0, 100).map((file): CommandPaletteCommand => ({
+        id: `workspace-file:${file.path}`,
+        title: `Open ${file.relativePath}`,
+        detail: "작업 폴더 파일 열기",
+        keywords: ["workspace", "file", file.name, file.relativePath],
+        run: () => handleOpenWorkspaceFile(file.path)
+      })),
+      {
         id: "save-file",
         title: "Save",
         detail: "현재 Markdown 저장",
@@ -1744,11 +1949,15 @@ export function App() {
       handleCutSubtree,
       handleDeleteSelectedNodes,
       handleEditSelectedNode,
+      handleCreateWorkspaceFile,
       handleNormalizeMarkdown,
       handleNew,
       handleOpen,
+      handleOpenWorkspace,
+      handleOpenWorkspaceFile,
       handlePasteSubtree,
       handleRedo,
+      handleRefreshWorkspace,
       handleResetPan,
       handleResetZoom,
       handleSave,
@@ -1763,6 +1972,8 @@ export function App() {
       selectedClipboardNodes.length,
       selectedClipboardPaths.length,
       selectedDocumentNode,
+      workspaceDirectory,
+      workspaceFiles,
       viewState.selectedNodePath
     ]
   );
@@ -2115,6 +2326,14 @@ export function App() {
 
     commandPaletteInputRef.current?.focus();
   }, [showCommandPalette]);
+
+  useEffect(() => {
+    if (!workspaceDirectory) {
+      return;
+    }
+
+    void loadWorkspaceFiles(workspaceDirectory);
+  }, [loadWorkspaceFiles, workspaceDirectory]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2489,7 +2708,13 @@ export function App() {
         ariaLabel={`Start ${direction} node`}
         readOnly={false}
         editOnClick={false}
-        onFocus={() => activateVirtualRoot(direction)}
+        onFocus={() => {
+          if (suppressVirtualRootFocusRef.current) {
+            return;
+          }
+
+          activateVirtualRoot(direction);
+        }}
         onEditClick={() => activateVirtualRoot(direction)}
         onToggleSelect={() => selectNode(path, false)}
         onRangeSelect={() => selectNode(path, false)}
@@ -2517,6 +2742,9 @@ export function App() {
           </button>
           <button type="button" onClick={handleOpen}>
             Open
+          </button>
+          <button type="button" onClick={handleOpenWorkspace}>
+            Folder
           </button>
           <details className="recent-menu">
             <summary role="button" aria-label="Recent files" title="Recent files">
@@ -2793,6 +3021,78 @@ export function App() {
             <span>디스크 파일이 바뀌었지만 mindmap parser가 읽을 수 없습니다.</span>
           </div>
           <Diagnostics diagnostics={activeDocument.externalError.diagnostics} compact />
+        </section>
+      )}
+
+      {workspaceDirectory && (
+        <section className="workspace-browser" aria-label="Workspace files">
+          <div className="workspace-browser-header">
+            <div className="workspace-browser-title">
+              <strong>{workspaceDirectory.name}</strong>
+              <span>{workspaceDirectory.path}</span>
+            </div>
+            <div className="workspace-browser-controls">
+              <input
+                type="search"
+                className="workspace-search-input"
+                aria-label="Search workspace files"
+                placeholder="Find file"
+                value={workspaceQuery}
+                onChange={(event) => setWorkspaceQuery(event.target.value)}
+              />
+              <button
+                type="button"
+                aria-label="New workspace file"
+                onClick={handleCreateWorkspaceFile}
+              >
+                New File
+              </button>
+              <button
+                type="button"
+                aria-label="Refresh workspace files"
+                onClick={handleRefreshWorkspace}
+              >
+                Refresh
+              </button>
+              <button
+                type="button"
+                aria-label="Close workspace"
+                onClick={handleCloseWorkspace}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="workspace-file-list" aria-label="Workspace file list">
+            {workspaceLoading ? (
+              <div className="workspace-file-empty">파일 목록을 읽는 중입니다.</div>
+            ) : filteredWorkspaceFiles.length === 0 ? (
+              <div className="workspace-file-empty">
+                {workspaceQuery.trim()
+                  ? "검색 결과가 없습니다."
+                  : "작업 폴더에 Markdown 파일이 없습니다."}
+              </div>
+            ) : (
+              filteredWorkspaceFiles.map((file) => (
+                <button
+                  type="button"
+                  key={file.path}
+                  className={classNames(
+                    "workspace-file-button",
+                    activeWorkspaceFilePath === file.path && "active"
+                  )}
+                  aria-label={`Open workspace file ${file.relativePath}`}
+                  title={file.path}
+                  onClick={() => void handleOpenWorkspaceFile(file.path)}
+                >
+                  <span className="workspace-file-name">{file.relativePath}</span>
+                  <span className="workspace-file-meta">
+                    {formatFileSize(file.size)}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
         </section>
       )}
 
@@ -4141,12 +4441,59 @@ function writeRecentFilesToStorage(files: RecentFile[]): void {
   }
 }
 
+function readWorkspaceDirectoryFromStorage(): WorkspaceDirectory | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return parseWorkspaceDirectory(
+      window.localStorage.getItem(workspaceDirectoryStorageKey)
+    );
+  } catch {
+    return null;
+  }
+}
+
+function writeWorkspaceDirectoryToStorage(
+  directory: WorkspaceDirectory | null
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (directory === null) {
+      window.localStorage.removeItem(workspaceDirectoryStorageKey);
+    } else {
+      window.localStorage.setItem(
+        workspaceDirectoryStorageKey,
+        serializeWorkspaceDirectory(directory)
+      );
+    }
+  } catch {
+    // The workspace directory is a convenience pointer; storage failures are non-fatal.
+  }
+}
+
 function confirmDiscardDirtyDocument(documentState: DocumentState): boolean {
   if (!documentState.dirty) {
     return true;
   }
 
   return window.confirm("저장되지 않은 변경이 있습니다. 계속할까요?");
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function statusLabel(
@@ -5276,8 +5623,13 @@ function connectorPathBetween(source: Point, target: Point, direction: Direction
 }
 
 function curveSegment(source: Point, target: Point, direction: Direction): string {
-  const distance = Math.max(Math.abs(target.x - source.x), 36);
-  const handle = Math.min(140, Math.max(28, distance * 0.5));
+  const horizontalDistance = Math.abs(target.x - source.x);
+  const distance = Math.max(horizontalDistance, 36);
+  const idealHandle = Math.min(140, Math.max(8, distance * 0.5));
+  const handle =
+    horizontalDistance > 0
+      ? Math.min(idealHandle, horizontalDistance * 0.5)
+      : 0;
   const sourceControlX = source.x + (direction === "right" ? handle : -handle);
   const targetControlX = target.x + (direction === "right" ? -handle : handle);
 
