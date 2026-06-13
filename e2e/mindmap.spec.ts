@@ -587,6 +587,24 @@ test("arrow navigation can move between the first node and the root", async ({ p
   await expect(firstNode).toHaveClass(/selected/);
 });
 
+test("Enter edits the root after arrow navigation selects it", async ({ page }) => {
+  const root = page.getByLabel("Root heading");
+  const firstNode = nodeInput(page, "right/0");
+
+  await firstNode.fill("A");
+  await firstNode.press("Escape");
+  await page.keyboard.press("ArrowLeft");
+
+  await expect(root).toHaveClass(/selected/);
+  await expect(root).toBeFocused();
+  await expect(root).toHaveAttribute("readonly", "");
+
+  await page.keyboard.press("Enter");
+
+  await expect(root).not.toHaveAttribute("readonly", "");
+  await expect(root).toBeFocused();
+});
+
 test("left branch arrows follow the nearest visible node", async ({ page }) => {
   const root = page.getByLabel("Root heading");
 

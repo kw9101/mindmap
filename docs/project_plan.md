@@ -658,7 +658,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - Tauri file watcher 생성 경로를 테스트 가능한 함수로 분리하고, 같은 경로를 사용하는 ignored stress test를 추가했다. `pnpm test:tauri:watch`는 기본 120회, 250ms 간격 반복 쓰기로 대상 Markdown 변경 이벤트를 확인한다.
 - 노드 검색 UI를 추가했다. `Cmd/Ctrl+F`로 검색창에 포커스하고, 검색어 match를 highlight하고, 다음/이전 결과로 이동하며, 접힌 조상은 자동으로 펼쳐 결과를 보이게 한다.
 - 커맨드 팔렛트를 추가했다. `Cmd/Ctrl+K` 또는 `Cmd/Ctrl+Shift+P`로 열고, 명령 이름/키워드로 검색한 뒤 `Enter`로 검색, 파일, 히스토리, 노드 편집, 클립보드, 줌/팬, 도움말 명령을 실행한다.
-- 검증: Vitest 82개 통과, Playwright e2e 63개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
+- 검증: Vitest 82개 통과, Playwright e2e 64개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
 
 ## 17. 남은 구현 후보
 

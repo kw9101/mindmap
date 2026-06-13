@@ -372,6 +372,14 @@ export function App() {
     }));
   }, []);
 
+  const selectNodeAndFocus = useCallback(
+    (path: string, editing: boolean) => {
+      selectNode(path, editing);
+      focusNodeElementOnNextFrame(path);
+    },
+    [selectNode]
+  );
+
   useEffect(() => {
     setSearchCursor((current) =>
       searchMatches.length === 0 ? 0 : Math.min(current, searchMatches.length - 1)
@@ -1754,7 +1762,7 @@ export function App() {
           if (event.shiftKey) {
             selectNodeRange(nextPath);
           } else {
-            selectNode(nextPath, false);
+            selectNodeAndFocus(nextPath, false);
           }
         } else if (
           event.key === "Tab" &&
@@ -1764,14 +1772,17 @@ export function App() {
         ) {
           event.preventDefault();
           if (event.shiftKey) {
-            selectNode(parentNodePath(mindmap, viewState.selectedNodePath), false);
+            selectNodeAndFocus(
+              parentNodePath(mindmap, viewState.selectedNodePath),
+              false
+            );
             return;
           }
 
           if (isRootNodePath(viewState.selectedNodePath)) {
             const childPath = firstNodePath(mindmap);
             if (childPath) {
-              selectNode(childPath, false);
+              selectNodeAndFocus(childPath, false);
             }
             return;
           }
@@ -1782,7 +1793,7 @@ export function App() {
           );
           if (childPath) {
             expandNode(viewState.selectedNodePath);
-            selectNode(childPath, false);
+            selectNodeAndFocus(childPath, false);
             return;
           }
 
@@ -1833,6 +1844,7 @@ export function App() {
     moveSelectedNodes,
     openCommandPalette,
     selectNode,
+    selectNodeAndFocus,
     selectNodeRange,
     showCommandPalette,
     showKeyboardHelp,
