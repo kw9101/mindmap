@@ -184,28 +184,55 @@ fn watch_markdown_file(
 ) -> Result<(), String> {
     let target = normalize_watch_path(Path::new(&path))?;
     let target_key = target.to_string_lossy().to_string();
-    let watch_dir = target
-        .parent()
-        .ok_or_else(|| "Document path has no parent directory.".to_string())?
-        .to_path_buf();
 
     let mut watchers = state.watchers.lock().map_err(to_string)?;
     if watchers.contains_key(&target_key) {
         return Ok(());
     }
 
+    let watcher =
+        create_markdown_file_watcher_for_target(target, target_key.clone(), move |event| {
+            let _ = app.emit("markdown-file-changed", event);
+        })?;
+    watchers.insert(target_key, watcher);
+    Ok(())
+}
+
+#[cfg(test)]
+fn create_markdown_file_watcher<F>(
+    path: &Path,
+    emit_change: F,
+) -> Result<(String, RecommendedWatcher), String>
+where
+    F: FnMut(MarkdownFileChangedEvent) + Send + 'static,
+{
+    let target = normalize_watch_path(path)?;
+    let target_key = target.to_string_lossy().to_string();
+    let watcher = create_markdown_file_watcher_for_target(target, target_key.clone(), emit_change)?;
+    Ok((target_key, watcher))
+}
+
+fn create_markdown_file_watcher_for_target<F>(
+    target: PathBuf,
+    target_key: String,
+    mut emit_change: F,
+) -> Result<RecommendedWatcher, String>
+where
+    F: FnMut(MarkdownFileChangedEvent) + Send + 'static,
+{
+    let watch_dir = target
+        .parent()
+        .ok_or_else(|| "Document path has no parent directory.".to_string())?
+        .to_path_buf();
     let event_path = target_key.clone();
     let event_target = target.clone();
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         if let Ok(event) = result {
             if event_matches_path(&event, &event_target) {
-                let _ = app.emit(
-                    "markdown-file-changed",
-                    MarkdownFileChangedEvent {
-                        path: event_path.clone(),
-                        kind: format!("{:?}", event.kind),
-                    },
-                );
+                emit_change(MarkdownFileChangedEvent {
+                    path: event_path.clone(),
+                    kind: format!("{:?}", event.kind),
+                });
             }
         }
     })
@@ -214,18 +241,18 @@ fn watch_markdown_file(
     watcher
         .watch(&watch_dir, RecursiveMode::NonRecursive)
         .map_err(to_string)?;
-    watchers.insert(target_key, watcher);
-    Ok(())
+    Ok(watcher)
 }
 
 #[tauri::command]
-fn unwatch_markdown_file(
-    state: tauri::State<'_, WatchState>,
-    path: String,
-) -> Result<(), String> {
+fn unwatch_markdown_file(state: tauri::State<'_, WatchState>, path: String) -> Result<(), String> {
     let target = normalize_watch_path(Path::new(&path))?;
     let target_key = target.to_string_lossy().to_string();
-    state.watchers.lock().map_err(to_string)?.remove(&target_key);
+    state
+        .watchers
+        .lock()
+        .map_err(to_string)?
+        .remove(&target_key);
     Ok(())
 }
 
@@ -385,6 +412,8 @@ fn event_matches_path(event: &Event, target: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::{self, Receiver};
+    use std::time::Duration;
 
     #[test]
     fn writes_and_reads_markdown_atomically() {
@@ -454,5 +483,67 @@ mod tests {
 
         assert!(event_matches_path(&matching_event, &target));
         assert!(!event_matches_path(&other_event, &target));
+    }
+
+    #[test]
+    #[ignore = "long-running native watcher stress test; run pnpm test:tauri:watch"]
+    fn stress_markdown_file_watcher_receives_repeated_changes() {
+        let iterations = env_usize("MINDMAP_WATCH_STRESS_ITERATIONS", 120);
+        let timeout = Duration::from_millis(env_u64("MINDMAP_WATCH_STRESS_TIMEOUT_MS", 5000));
+        let interval = Duration::from_millis(env_u64("MINDMAP_WATCH_STRESS_INTERVAL_MS", 250));
+        let temp_dir = tempfile::tempdir().unwrap();
+        let document_path = temp_dir.path().join("map.md");
+        let noise_path = temp_dir.path().join("noise.md");
+        fs::write(&document_path, "# Map\n\n-\n").unwrap();
+        fs::write(&noise_path, "# Noise\n\n-\n").unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let (_target_key, _watcher) = create_markdown_file_watcher(&document_path, move |event| {
+            let _ = tx.send(event);
+        })
+        .unwrap();
+
+        for index in 0..iterations {
+            drain_pending_events(&rx);
+            fs::write(&noise_path, format!("# Noise {index}\n\n-\n")).unwrap();
+            fs::write(
+                &document_path,
+                format!("# Map {index}\n\n- event {index}\n"),
+            )
+            .unwrap();
+
+            let event = rx
+                .recv_timeout(timeout)
+                .unwrap_or_else(|error| panic!("watcher missed iteration {index}: {error}"));
+            assert_eq!(
+                event.path,
+                normalize_watch_path(&document_path)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            );
+
+            if !interval.is_zero() {
+                std::thread::sleep(interval);
+            }
+        }
+    }
+
+    fn drain_pending_events(receiver: &Receiver<MarkdownFileChangedEvent>) {
+        while receiver.try_recv().is_ok() {}
+    }
+
+    fn env_usize(key: &str, default: usize) -> usize {
+        std::env::var(key)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(default)
+    }
+
+    fn env_u64(key: &str, default: u64) -> u64 {
+        std::env::var(key)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(default)
     }
 }

@@ -9,6 +9,8 @@
     "e2e": "playwright test",
     "test": "vitest run",
     "test:all": "pnpm test && pnpm e2e",
+    "test:tauri": "cd src-tauri && cargo test",
+    "test:tauri:watch": "cd src-tauri && cargo test stress_markdown_file_watcher_receives_repeated_changes -- --ignored --nocapture",
     "test:watch": "vitest",
     "tauri": "tauri"
   },

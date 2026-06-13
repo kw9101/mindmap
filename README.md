@@ -44,6 +44,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 마우스 드래그 기반 노드 재배치
 - 노드 hover/focus 보조 핸들 기반 자식 추가, 형제 추가, 삭제
 - 노드 접기/펼치기와 큰 마인드맵용 가로 확장 레이아웃
+- Tauri file watcher 장시간 stress test
 - 기능별 unit test
 - Playwright 기반 e2e user-flow test
 
@@ -69,10 +70,13 @@ pnpm dev -- --port 1420
 Tauri 확인:
 
 ```bash
-cd src-tauri
-cargo test
-cargo check
+pnpm test:tauri
+pnpm test:tauri:watch
+cd src-tauri && cargo check
 ```
+
+`pnpm test:tauri:watch`는 기본 120회, 250ms 간격으로 반복한다. 짧게 확인하려면
+`MINDMAP_WATCH_STRESS_ITERATIONS=5 MINDMAP_WATCH_STRESS_TIMEOUT_MS=3000 MINDMAP_WATCH_STRESS_INTERVAL_MS=0 pnpm test:tauri:watch`처럼 조절한다.
 
 전체 프론트 빌드:
 
@@ -126,4 +130,4 @@ pnpm tauri dev
 
 ## 다음 행동
 
-1. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. 다음 planning pass에서 새 기능 후보를 정한다.

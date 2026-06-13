@@ -654,8 +654,9 @@ SQLite에 저장하지 않는 문서 데이터:
 - 노드 옆에 상시 노출되던 `+`, `S`, `Del` 액션 버튼을 제거했다. 자식 추가, 형제 추가, 삭제는 키보드 단축키로 수행한다.
 - 노드 hover/focus 보조 핸들을 추가했다. 기본 화면은 조용하게 유지하고, 필요한 경우 작은 원형 버튼으로 자식 추가, 다음 형제 추가, 삭제를 수행한다.
 - pan 상태 표시와 8px 단위 방향 조절 버튼을 추가했다. 이 값은 기존 `viewState.pan`을 그대로 사용하므로 SQLite view state 저장과 함께 동작한다.
-- 검증: Vitest 82개 통과, Playwright e2e 57개 통과, TypeScript check 통과, Vite production build 통과, `cargo check` 통과.
+- Tauri file watcher 생성 경로를 테스트 가능한 함수로 분리하고, 같은 경로를 사용하는 ignored stress test를 추가했다. `pnpm test:tauri:watch`는 기본 120회, 250ms 간격 반복 쓰기로 대상 Markdown 변경 이벤트를 확인한다.
+- 검증: Vitest 82개 통과, Playwright e2e 57개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
 
 ## 17. 남은 구현 후보
 
-1. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. 다음 planning pass에서 새 기능 후보를 정한다.
