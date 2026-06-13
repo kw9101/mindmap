@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const actualConnectorSelector = ".connector-layer path:not(.virtual-connector)";
 
@@ -20,6 +20,24 @@ test("initial document renders virtual start nodes", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("#\n");
 });
 
+test("layout overview mirrors the visible mindmap", async ({ page }) => {
+  await expect(page.locator(".layout-overview")).toBeVisible();
+  await expect(page.locator(".layout-overview-node")).toHaveCount(3);
+  await expect(
+    page.locator(".layout-overview-connector.virtual-connector")
+  ).toHaveCount(2);
+  await expect(page.locator(".layout-overview-viewport")).toBeVisible();
+
+  await virtualRightRootInput(page).press("Enter");
+  await nodeInput(page, "right/0").fill("Parent");
+  await nodeInput(page, "right/0").press("Tab");
+  await nodeInput(page, "right/0/0").fill("Child");
+
+  await expect(page.locator(".layout-overview-node")).toHaveCount(4);
+  await expect(page.locator(".layout-overview-node.node-level-1")).toHaveCount(1);
+  await expect(page.locator(".layout-overview-node.node-level-2")).toHaveCount(1);
+});
+
 test("editing the root and first node updates markdown", async ({ page }) => {
   const root = page.getByLabel("Root heading");
   await root.click();
@@ -32,6 +50,96 @@ test("editing the root and first node updates markdown", async ({ page }) => {
   await first.fill("Idea");
 
   await expect(markdownOutput(page)).toHaveText("# Project\n\n- Idea\n");
+});
+
+test("IME composition in the first node commits after the syllable is composed", async ({
+  page
+}) => {
+  await virtualRightRootInput(page).press("Enter");
+  const first = nodeInput(page, "right/0");
+  await expect(first).toBeFocused();
+
+  await startComposition(first);
+  await updateComposedText(first, "ㅁ");
+  await expect(first).toHaveValue("ㅁ");
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+
+  await updateComposedText(first, "뭐지?");
+  await endComposition(first, "뭐지?");
+
+  await expect(first).toHaveValue("뭐지?");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- 뭐지?\n");
+});
+
+test("IME composition keeps the composed syllable before following text", async ({
+  page
+}) => {
+  await virtualRightRootInput(page).press("Enter");
+  const first = nodeInput(page, "right/0");
+  await expect(first).toBeFocused();
+
+  await startComposition(first);
+  await updateComposedText(first, "뭐");
+  await endComposition(first, "뭐");
+  await updateInputText(first, "뭐지");
+  await updateInputText(first, "뭐지?");
+
+  await expect(first).toHaveValue("뭐지?");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- 뭐지?\n");
+});
+
+test("IME composition keeps the first phrase at the front of a longer sentence", async ({
+  page
+}) => {
+  await virtualRightRootInput(page).press("Enter");
+  const first = nodeInput(page, "right/0");
+  await expect(first).toBeFocused();
+
+  await startComposition(first);
+  await updateComposedText(first, "이번에도");
+  await endComposition(first, "이번에도");
+  await updateInputText(first, "이번에도 ");
+  await startComposition(first);
+  await updateComposedText(first, "이번에도 잘");
+  await endComposition(first, "잘");
+  await updateInputText(first, "이번에도 잘 되나 ");
+  await startComposition(first);
+  await updateComposedText(first, "이번에도 잘 되나 보자");
+  await endComposition(first, "보자");
+  await updateInputText(first, "이번에도 잘 되나 보자?");
+
+  await expect(first).toHaveValue("이번에도 잘 되나 보자?");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- 이번에도 잘 되나 보자?\n");
+});
+
+test("IME composition stays ordered after virtual right and left roots materialize", async ({
+  page
+}) => {
+  await virtualRightRootInput(page).focus();
+  const right = nodeInput(page, "right/0");
+  await expect(right).toBeFocused();
+
+  await startComposition(right);
+  await updateComposedText(right, "뭐");
+  await endComposition(right, "뭐");
+  await updateInputText(right, "뭐지?");
+
+  await expect(right).toHaveValue("뭐지?");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- 뭐지?\n");
+
+  await virtualLeftRootInput(page).focus();
+  const left = nodeInput(page, "left/0");
+  await expect(left).toBeFocused();
+
+  await startComposition(left);
+  await updateComposedText(left, "왼쪽");
+  await endComposition(left, "왼쪽");
+  await updateInputText(left, "왼쪽?");
+
+  await expect(left).toHaveValue("왼쪽?");
+  await expect(markdownOutput(page)).toHaveText(
+    "#\n\n## Right\n\n- 뭐지?\n\n## Left\n\n- 왼쪽?\n"
+  );
 });
 
 test("focused root Enter starts title editing", async ({ page }) => {
@@ -48,20 +156,76 @@ test("focused root Enter starts title editing", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("# Title\n");
 });
 
-test("MM018 notice explains root title trailing spaces", async ({ page }) => {
+test("root title trailing spaces stay local while markdown remains canonical", async ({
+  page
+}) => {
   const root = page.getByLabel("Root heading");
 
   await root.click();
   await root.press("Enter");
-  await root.type("Title ");
+  await updateInputText(root, "이번에도 잘 되나");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도 잘 되나\n");
 
-  const notice = page.locator(".notice");
-  await expect(notice).toContainText("MM018");
-  await expect(notice).toContainText("Markdown 줄 끝 또는 파일 끝 형식");
-  await expect(notice).toContainText("문제 줄:");
-  await expect(notice).toContainText("제목 맨 끝 공백");
-  await expect(notice).toContainText("잘못된 예:");
-  await expect(notice).toContainText("올바른 예:");
+  await updateInputText(root, "이번에도 잘 되나 ");
+
+  await expect(root).toHaveValue("이번에도 잘 되나 ");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도 잘 되나\n");
+  await expect(page.locator(".notice")).toHaveCount(0);
+
+  await updateInputText(root, "이번에도 잘 되나 보자?");
+
+  await expect(root).toHaveValue("이번에도 잘 되나 보자?");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도 잘 되나 보자?\n");
+});
+
+test("root title keeps the caret after a trailing space", async ({ page }) => {
+  const root = page.getByLabel("Root heading");
+
+  await root.click();
+  await root.press("Enter");
+  await updateInputText(root, "이번에도");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도\n");
+
+  await updateInputText(root, "이번에도 ");
+
+  await expect(root).toHaveValue("이번에도 ");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도\n");
+  await expect.poll(() => textSelection(root)).toEqual({
+    start: "이번에도 ".length,
+    end: "이번에도 ".length
+  });
+
+  await insertTextAtSelection(root, "잘 되나 보자?");
+
+  await expect(root).toHaveValue("이번에도 잘 되나 보자?");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도 잘 되나 보자?\n");
+});
+
+test("root title IME composition keeps following text after the first phrase", async ({
+  page
+}) => {
+  const root = page.getByLabel("Root heading");
+
+  await root.click();
+  await root.press("Enter");
+  await startComposition(root);
+  await updateComposedText(root, "이번에도");
+  await endComposition(root, "이번에도");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도\n");
+
+  await updateInputText(root, "이번에도 ");
+
+  await expect(root).toHaveValue("이번에도 ");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도\n");
+  await expect.poll(() => textSelection(root)).toEqual({
+    start: "이번에도 ".length,
+    end: "이번에도 ".length
+  });
+
+  await insertTextAtSelection(root, "잘 되나 보자?");
+
+  await expect(root).toHaveValue("이번에도 잘 되나 보자?");
+  await expect(markdownOutput(page)).toHaveText("# 이번에도 잘 되나 보자?\n");
 });
 
 test("Enter creates a sibling node and undo redo restores it", async ({ page }) => {
@@ -78,6 +242,7 @@ test("Enter creates a sibling node and undo redo restores it", async ({ page }) 
   await nodeInput(page, "right/1").fill("B");
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
 
+  await openMoreActions(page);
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".node-input")).toHaveCount(2);
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
@@ -177,22 +342,16 @@ test("empty parent nodes are not shown as transient", async ({ page }) => {
   await expect(nodeInput(page, "right/0/0")).toHaveClass(/transient-empty/);
 });
 
-test("virtual left root starts a left node from keyboard navigation", async ({
+test("keyboard navigation into the virtual left root materializes a left node", async ({
   page
 }) => {
+  await virtualRightRootInput(page).press("Enter");
   const first = nodeInput(page, "right/0");
-  const virtualLeft = virtualLeftRootInput(page);
 
   await first.fill("A");
   await first.press("Escape");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
-
-  await expect(virtualLeft).toBeFocused();
-  await expect(virtualLeft).toHaveClass(/selected/);
-  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
-
-  await page.keyboard.press("Enter");
 
   await expect(nodeInput(page, "left/0")).toBeFocused();
   await expect(virtualLeftRootInput(page)).toHaveCount(0);
@@ -232,20 +391,37 @@ test("Enter on an empty leaf keeps focus instead of jumping to the previous node
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
 });
 
-test("toolbar can add right and left root nodes", async ({ page }) => {
-  await page.getByRole("button", { name: "Add right root node" }).click();
+test("virtual start nodes create right and left root nodes", async ({ page }) => {
+  await virtualRightRootInput(page).press("Enter");
   await expect(nodeInput(page, "right/0")).toBeFocused();
   await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
 
-  await page.getByRole("button", { name: "Add left root node" }).click();
+  await virtualLeftRootInput(page).press("Enter");
   await expect(nodeInput(page, "left/0")).toBeFocused();
-  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n## Left\n\n-\n");
+  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n\n## Left\n\n-\n");
+});
+
+test("focusing virtual start nodes materializes real editable nodes before typing", async ({
+  page
+}) => {
+  await virtualRightRootInput(page).focus();
+
+  await expect(nodeInput(page, "right/0")).toBeFocused();
+  await expect(virtualRightRootInput(page)).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
+
+  await virtualLeftRootInput(page).focus();
+
+  await expect(nodeInput(page, "left/0")).toBeFocused();
+  await expect(virtualLeftRootInput(page)).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n\n## Left\n\n-\n");
 });
 
 test("Normalize reports when markdown is already canonical", async ({ page }) => {
   const node = nodeInput(page, "right/0");
   await node.fill("A");
 
+  await openMoreActions(page);
   await page.getByRole("button", { name: "Normalize" }).click();
 
   await expect(page.locator(".notice")).toContainText("이미 정규화된 Markdown입니다.");
@@ -268,6 +444,7 @@ test("parse errors offer auto normalize from the diagnostics screen", async ({
 });
 
 test("zoom controls can zoom in and reset", async ({ page }) => {
+  await openMoreActions(page);
   const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
 
   await expect(resetZoomButton).toHaveText("100%");
@@ -278,6 +455,7 @@ test("zoom controls can zoom in and reset", async ({ page }) => {
 });
 
 test("mouse wheel zooms the canvas in and out", async ({ page }) => {
+  await openMoreActions(page);
   const viewport = page.getByLabel("Mindmap canvas");
   const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
   const box = await viewport.boundingBox();
@@ -313,6 +491,7 @@ test("canvas can pan by dragging and reset to center", async ({ page }) => {
     )
     .toEqual({ x: "80px", y: "40px" });
 
+  await openMoreActions(page);
   await page.getByRole("button", { name: "Reset pan" }).click();
 
   await expect
@@ -326,6 +505,7 @@ test("canvas can pan by dragging and reset to center", async ({ page }) => {
 });
 
 test("pan controls display and nudge the workspace offset", async ({ page }) => {
+  await openMoreActions(page);
   const workspace = page.locator(".workspace");
   const panOffset = page.getByLabel("Pan offset");
 
@@ -867,7 +1047,7 @@ test("Enter edits the root after arrow navigation selects it", async ({ page }) 
 test("left branch arrows follow the nearest visible node", async ({ page }) => {
   const root = page.getByLabel("Root heading");
 
-  await page.getByRole("button", { name: "Add left root node" }).click();
+  await virtualLeftRootInput(page).press("Enter");
   const left = nodeInput(page, "left/0");
   await expect(left).toBeFocused();
 
@@ -1477,9 +1657,10 @@ test("sibling connectors share one branch trunk", async ({ page }) => {
 });
 
 test("IME composing Enter does not create a sibling node", async ({ page }) => {
-  const firstNode = virtualRightRootInput(page);
+  await virtualRightRootInput(page).focus();
+  const firstNode = nodeInput(page, "right/0");
 
-  await firstNode.focus();
+  await expect(firstNode).toBeFocused();
   await firstNode.dispatchEvent("keydown", {
     bubbles: true,
     cancelable: true,
@@ -1487,8 +1668,8 @@ test("IME composing Enter does not create a sibling node", async ({ page }) => {
     key: "Enter"
   });
 
-  await expect(page.locator(".node-input")).toHaveCount(0);
-  await expect(markdownOutput(page)).toHaveText("#\n");
+  await expect(page.locator(".node-input")).toHaveCount(1);
+  await expect(markdownOutput(page)).toHaveText("#\n\n-\n");
 });
 
 test("typing a space into an empty node remains valid markdown", async ({ page }) => {
@@ -1806,6 +1987,14 @@ function virtualRightRootInput(page: Page) {
   return virtualRootInput(page, "right");
 }
 
+async function openMoreActions(page: Page): Promise<void> {
+  const moreMenu = page.locator(".more-menu");
+  const isOpen = await moreMenu.evaluate((element) => element.hasAttribute("open"));
+  if (!isOpen) {
+    await page.getByRole("button", { name: "More actions" }).click();
+  }
+}
+
 async function mockTauriOpenMarkdown(page: Page, contents: string): Promise<void> {
   await page.addInitScript((source) => {
     let callbackId = 0;
@@ -1873,6 +2062,92 @@ async function nodeActionOpacity(page: Page, path: string) {
 
 function nodeByPath(page: Page, path: string) {
   return page.locator(`[data-node-path="${path}"]`);
+}
+
+async function startComposition(locator: Locator): Promise<void> {
+  await locator.dispatchEvent("compositionstart", { data: "" });
+}
+
+async function updateComposedText(locator: Locator, value: string): Promise<void> {
+  await locator.evaluate((element, nextValue) => {
+    const textarea = element as HTMLTextAreaElement;
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value"
+    );
+    descriptor?.set?.call(textarea, nextValue);
+    textarea.setSelectionRange(nextValue.length, nextValue.length);
+    textarea.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: nextValue,
+        inputType: "insertCompositionText",
+        isComposing: true
+      })
+    );
+  }, value);
+}
+
+async function endComposition(locator: Locator, value: string): Promise<void> {
+  await locator.dispatchEvent("compositionend", { data: value });
+}
+
+async function updateInputText(locator: Locator, value: string): Promise<void> {
+  await locator.evaluate((element, nextValue) => {
+    const textarea = element as HTMLTextAreaElement;
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value"
+    );
+    descriptor?.set?.call(textarea, nextValue);
+    textarea.setSelectionRange(nextValue.length, nextValue.length);
+    textarea.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: nextValue,
+        inputType: "insertText",
+        isComposing: false
+      })
+    );
+  }, value);
+}
+
+async function insertTextAtSelection(locator: Locator, text: string): Promise<void> {
+  await locator.evaluate((element, insertion) => {
+    const textarea = element as HTMLTextAreaElement;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const nextValue =
+      textarea.value.slice(0, start) + insertion + textarea.value.slice(end);
+    const nextCaret = start + insertion.length;
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value"
+    );
+    descriptor?.set?.call(textarea, nextValue);
+    textarea.setSelectionRange(nextCaret, nextCaret);
+    textarea.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: insertion,
+        inputType: "insertText",
+        isComposing: false
+      })
+    );
+  }, text);
+}
+
+async function textSelection(locator: Locator): Promise<{ start: number; end: number }> {
+  return locator.evaluate((element) => {
+    const textarea = element as HTMLTextAreaElement;
+    return {
+      start: textarea.selectionStart,
+      end: textarea.selectionEnd
+    };
+  });
 }
 
 async function dragNodeTo(

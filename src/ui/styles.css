@@ -87,9 +87,11 @@ button:disabled:hover {
 }
 
 .toolbar {
+  position: relative;
   display: flex;
+  align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
@@ -108,8 +110,6 @@ button:disabled:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-left: 8px;
-  border-left: 1px solid #dfe2e7;
 }
 
 .search-input {
@@ -270,6 +270,69 @@ button:disabled:hover {
   margin: 0 5px;
   color: #6b7280;
   font-size: 12px;
+}
+
+.more-menu {
+  position: relative;
+}
+
+.more-menu summary {
+  height: 34px;
+  min-width: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c8ccd2;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #202124;
+  cursor: pointer;
+  list-style: none;
+}
+
+.more-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-menu summary:hover,
+.more-menu[open] summary {
+  border-color: #8cb4ff;
+  background: #eef4ff;
+}
+
+.more-menu summary:focus-visible {
+  outline: none;
+  border-color: #4d88ff;
+  box-shadow: 0 0 0 3px #dce8ff;
+}
+
+.more-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dfe2e7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14);
+}
+
+.more-menu-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.more-menu-panel .zoom-controls,
+.more-menu-panel .pan-controls {
+  padding-left: 0;
+  border-left: 0;
+  flex-wrap: wrap;
 }
 
 kbd {
@@ -481,13 +544,23 @@ kbd {
   order: 0;
 }
 
+.document-layout.markdown-left .workspace-shell,
 .document-layout.markdown-left .workspace-viewport,
+.document-layout.markdown-right .workspace-shell,
 .document-layout.markdown-right .workspace-viewport {
   order: 1;
 }
 
 .document-layout.markdown-right .markdown-panel {
   order: 2;
+}
+
+.workspace-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
 }
 
 .workspace-viewport {
@@ -498,6 +571,113 @@ kbd {
   background: #f6f7f9;
   cursor: grab;
   touch-action: none;
+}
+
+.layout-overview {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 12;
+  width: 168px;
+  height: 118px;
+  padding: 8px;
+  border: 1px solid rgba(139, 149, 163, 0.38);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 24px rgba(24, 31, 42, 0.12);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.layout-overview svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.layout-overview-connector {
+  fill: none;
+  stroke: #aeb8c4;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.layout-overview-connector.connector-level-1 {
+  stroke-width: 2.2;
+}
+
+.layout-overview-connector.connector-level-2 {
+  stroke-width: 1.8;
+}
+
+.layout-overview-connector.connector-level-3 {
+  stroke-width: 1.5;
+}
+
+.layout-overview-connector.connector-level-deep {
+  stroke-width: 1.2;
+}
+
+.layout-overview-connector.virtual-connector,
+.layout-overview-connector.transient-connector {
+  stroke: #c8ccd2;
+  stroke-dasharray: 5 5;
+}
+
+.layout-overview-node {
+  fill: #ffffff;
+  stroke: #aeb8c4;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.layout-overview-node.node-level-1 {
+  fill: #eaf3ff;
+  stroke: #9dbbf3;
+}
+
+.layout-overview-node.node-level-2 {
+  fill: #ecf8f0;
+  stroke: #9fd8b7;
+}
+
+.layout-overview-node.node-level-3 {
+  fill: #fff5df;
+  stroke: #eacb8b;
+}
+
+.layout-overview-node.node-level-deep {
+  fill: #f4edff;
+  stroke: #c4afe8;
+}
+
+.layout-overview-root {
+  fill: #ffffff;
+  stroke: #7b8794;
+  stroke-width: 1.8;
+}
+
+.layout-overview-virtual,
+.layout-overview-transient {
+  fill: rgba(255, 255, 255, 0.58);
+  stroke: #aeb8c4;
+  stroke-dasharray: 4 4;
+  opacity: 0.76;
+}
+
+.layout-overview-selected {
+  stroke: #4d88ff;
+  stroke-width: 2.2;
+}
+
+.layout-overview-viewport {
+  fill: rgba(77, 136, 255, 0.08);
+  stroke: rgba(77, 136, 255, 0.74);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
 }
 
 .workspace-viewport.is-panning {
@@ -1303,7 +1483,9 @@ kbd {
     flex-direction: column;
   }
 
+  .document-layout.markdown-left .workspace-shell,
   .document-layout.markdown-left .workspace-viewport,
+  .document-layout.markdown-right .workspace-shell,
   .document-layout.markdown-right .workspace-viewport {
     order: 0;
   }
@@ -1325,6 +1507,14 @@ kbd {
     justify-items: stretch;
     gap: 16px;
     padding: 24px 16px;
+  }
+
+  .layout-overview {
+    right: 10px;
+    bottom: 10px;
+    width: 126px;
+    height: 88px;
+    padding: 6px;
   }
 
   .branch,

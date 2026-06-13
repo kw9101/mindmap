@@ -126,6 +126,39 @@ type ConnectorPath = {
   transient?: boolean;
 };
 
+type LayoutOverviewNode = {
+  path: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  levelClass: string;
+  root: boolean;
+  virtual: boolean;
+  transient: boolean;
+  selected: boolean;
+};
+
+type LayoutOverviewRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type LayoutOverviewModel = {
+  viewBox: string;
+  nodes: LayoutOverviewNode[];
+  connectors: ConnectorPath[];
+  viewport: LayoutOverviewRect | null;
+};
+
+type TextSelectionSnapshot = {
+  start: number;
+  end: number;
+  direction: "forward" | "backward" | "none";
+};
+
 type SearchMatch = {
   path: string;
 };
@@ -280,6 +313,9 @@ export function App() {
     null
   );
   const [connectorPaths, setConnectorPaths] = useState<ConnectorPath[]>([]);
+  const [layoutOverview, setLayoutOverview] = useState<LayoutOverviewModel | null>(
+    null
+  );
   const workspaceRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const commandPaletteInputRef = useRef<HTMLInputElement | null>(null);
@@ -1898,17 +1934,10 @@ export function App() {
     input?.focus();
   }, [viewState.editingNodePath]);
 
-  useEffect(() => {
-    if (!isVirtualRootPath(viewState.selectedNodePath)) {
-      return;
-    }
-
-    focusNodeElementOnNextFrame(viewState.selectedNodePath);
-  }, [viewState.selectedNodePath]);
-
   useLayoutEffect(() => {
     if (!mindmap) {
       setConnectorPaths([]);
+      setLayoutOverview(null);
       return;
     }
 
@@ -1916,11 +1945,24 @@ export function App() {
       const workspace = workspaceRef.current;
       if (!workspace) {
         setConnectorPaths([]);
+        setLayoutOverview(null);
         return;
       }
 
-      setConnectorPaths(
-        buildConnectorPaths(workspace, mindmap, viewState.zoom, collapsedPathSet)
+      const nextConnectorPaths = buildConnectorPaths(
+        workspace,
+        mindmap,
+        viewState.zoom,
+        collapsedPathSet
+      );
+      setConnectorPaths(nextConnectorPaths);
+      setLayoutOverview(
+        buildLayoutOverview(
+          workspace,
+          nextConnectorPaths,
+          viewState.zoom,
+          new Set(selectedNodePaths)
+        )
       );
     };
 
@@ -1932,14 +1974,24 @@ export function App() {
     workspaceRef.current!
       .querySelectorAll("[data-node-path]")
       .forEach((element) => resizeObserver.observe(element));
+    const viewport = workspaceRef.current!.closest<HTMLElement>(".workspace-viewport");
+    viewport?.addEventListener("scroll", updateConnectors, { passive: true });
     window.addEventListener("resize", updateConnectors);
 
     return () => {
       window.cancelAnimationFrame(frame);
       resizeObserver.disconnect();
+      viewport?.removeEventListener("scroll", updateConnectors);
       window.removeEventListener("resize", updateConnectors);
     };
-  }, [collapsedPathSet, mindmap, viewState.zoom]);
+  }, [
+    collapsedPathSet,
+    mindmap,
+    selectedNodePaths,
+    viewState.pan.x,
+    viewState.pan.y,
+    viewState.zoom
+  ]);
 
   useEffect(() => {
     if (!showKeyboardHelp) {
@@ -2329,7 +2381,7 @@ export function App() {
         ariaLabel={`Start ${direction} node`}
         readOnly={false}
         editOnClick={false}
-        onFocus={() => selectNode(path, false)}
+        onFocus={() => activateVirtualRoot(direction)}
         onEditClick={() => activateVirtualRoot(direction)}
         onToggleSelect={() => selectNode(path, false)}
         onRangeSelect={() => selectNode(path, false)}
@@ -2357,39 +2409,6 @@ export function App() {
           </button>
           <button type="button" onClick={handleSave}>
             Save
-          </button>
-          <button type="button" onClick={handleSaveAs}>
-            Save As
-          </button>
-          <button type="button" onClick={handleNormalizeMarkdown}>
-            Normalize
-          </button>
-          <button type="button" onClick={handleUndo} disabled={!canUndo(history)}>
-            Undo
-          </button>
-          <button type="button" onClick={handleRedo} disabled={!canRedo(history)}>
-            Redo
-          </button>
-          <button
-            type="button"
-            onClick={handleCopySubtree}
-            disabled={!mindmap || selectedClipboardNodes.length === 0}
-          >
-            Copy
-          </button>
-          <button
-            type="button"
-            onClick={handleCutSubtree}
-            disabled={!mindmap || selectedClipboardNodes.length === 0}
-          >
-            Cut
-          </button>
-          <button
-            type="button"
-            onClick={handlePasteSubtree}
-            disabled={!mindmap || !selectedDocumentNode}
-          >
-            Paste
           </button>
           <div className="search-controls" role="search" aria-label="Node search">
             <input
@@ -2452,104 +2471,126 @@ export function App() {
           >
             Cmd
           </button>
-          {mindmap && (
-            <>
-              <button
-                type="button"
-                aria-label="Add right root node"
-                title="Add right root node"
-                onPointerDown={preventActionPointerDown}
-                onClick={() => handleAddRootNode("right")}
-              >
-                +R
-              </button>
-              <button
-                type="button"
-                aria-label="Add left root node"
-                title="Add left root node"
-                onPointerDown={preventActionPointerDown}
-                onClick={() => handleAddRootNode("left")}
-              >
-                +L
-              </button>
-            </>
-          )}
-          <div className="zoom-controls" aria-label="Zoom controls">
-            <button
-              type="button"
-              aria-label="Zoom out"
-              title="Zoom out"
-              onClick={handleZoomOut}
-            >
-              -
-            </button>
-            <button
-              type="button"
-              aria-label="Reset zoom"
-              title="Reset zoom"
-              onClick={handleResetZoom}
-            >
-              {formatZoom(viewState.zoom)}
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom in"
-              title="Zoom in"
-              onClick={handleZoomIn}
-            >
-              +
-            </button>
-          </div>
-          <div className="pan-controls" aria-label="Pan controls">
-            <button
-              type="button"
-              className="pan-up"
-              aria-label="Pan up"
-              title="Pan up"
-              onClick={() => handlePanNudge(0, -panNudgeStep)}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              className="pan-left"
-              aria-label="Pan left"
-              title="Pan left"
-              onClick={() => handlePanNudge(-panNudgeStep, 0)}
-            >
-              ←
-            </button>
-            <output className="pan-readout" aria-label="Pan offset">
-              {formatPan(viewState.pan)}
-            </output>
-            <button
-              type="button"
-              className="pan-right"
-              aria-label="Pan right"
-              title="Pan right"
-              onClick={() => handlePanNudge(panNudgeStep, 0)}
-            >
-              →
-            </button>
-            <button
-              type="button"
-              className="pan-down"
-              aria-label="Pan down"
-              title="Pan down"
-              onClick={() => handlePanNudge(0, panNudgeStep)}
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              className="pan-reset"
-              aria-label="Reset pan"
-              title="Reset pan"
-              onClick={handleResetPan}
-            >
-              Center
-            </button>
-          </div>
+          <details className="more-menu">
+            <summary role="button" aria-label="More actions" title="More actions">
+              More
+            </summary>
+            <div className="more-menu-panel" role="group" aria-label="More actions menu">
+              <div className="more-menu-section">
+                <button type="button" onClick={handleSaveAs}>
+                  Save As
+                </button>
+                <button type="button" onClick={handleNormalizeMarkdown}>
+                  Normalize
+                </button>
+              </div>
+              <div className="more-menu-section">
+                <button type="button" onClick={handleUndo} disabled={!canUndo(history)}>
+                  Undo
+                </button>
+                <button type="button" onClick={handleRedo} disabled={!canRedo(history)}>
+                  Redo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopySubtree}
+                  disabled={!mindmap || selectedClipboardNodes.length === 0}
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCutSubtree}
+                  disabled={!mindmap || selectedClipboardNodes.length === 0}
+                >
+                  Cut
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasteSubtree}
+                  disabled={!mindmap || !selectedDocumentNode}
+                >
+                  Paste
+                </button>
+              </div>
+              <div className="zoom-controls" aria-label="Zoom controls">
+                <button
+                  type="button"
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                  onClick={handleZoomOut}
+                >
+                  -
+                </button>
+                <button
+                  type="button"
+                  aria-label="Reset zoom"
+                  title="Reset zoom"
+                  onClick={handleResetZoom}
+                >
+                  {formatZoom(viewState.zoom)}
+                </button>
+                <button
+                  type="button"
+                  aria-label="Zoom in"
+                  title="Zoom in"
+                  onClick={handleZoomIn}
+                >
+                  +
+                </button>
+              </div>
+              <div className="pan-controls" aria-label="Pan controls">
+                <button
+                  type="button"
+                  className="pan-up"
+                  aria-label="Pan up"
+                  title="Pan up"
+                  onClick={() => handlePanNudge(0, -panNudgeStep)}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="pan-left"
+                  aria-label="Pan left"
+                  title="Pan left"
+                  onClick={() => handlePanNudge(-panNudgeStep, 0)}
+                >
+                  ←
+                </button>
+                <output className="pan-readout" aria-label="Pan offset">
+                  {formatPan(viewState.pan)}
+                </output>
+                <button
+                  type="button"
+                  className="pan-right"
+                  aria-label="Pan right"
+                  title="Pan right"
+                  onClick={() => handlePanNudge(panNudgeStep, 0)}
+                >
+                  →
+                </button>
+                <button
+                  type="button"
+                  className="pan-down"
+                  aria-label="Pan down"
+                  title="Pan down"
+                  onClick={() => handlePanNudge(0, panNudgeStep)}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="pan-reset"
+                  aria-label="Reset pan"
+                  title="Reset pan"
+                  onClick={handleResetPan}
+                >
+                  Center
+                </button>
+              </div>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -2616,114 +2657,139 @@ export function App() {
             className={`document-layout markdown-${viewState.markdownPanel.position}`}
             style={documentLayoutStyle}
           >
-            <section
-              className={`workspace-viewport${isPanning ? " is-panning" : ""}${
-                isNodeDragging ? " is-node-dragging" : ""
-              }`}
-              aria-label="Mindmap canvas"
-              onPointerDown={handleViewportPointerDown}
-              onPointerMove={handleViewportPointerMove}
-              onPointerUp={stopViewportPan}
-              onPointerCancel={stopViewportPan}
-              onWheel={handleViewportWheel}
-            >
+            <section className="workspace-shell">
               <section
-                className={`workspace${leftNodes.length > 0 ? " has-left" : ""}${
-                  rightNodes.length > 0 ? " has-right" : ""
+                className={`workspace-viewport${isPanning ? " is-panning" : ""}${
+                  isNodeDragging ? " is-node-dragging" : ""
                 }`}
-                ref={workspaceRef}
-                style={workspaceStyle}
+                aria-label="Mindmap canvas"
+                onPointerDown={handleViewportPointerDown}
+                onPointerMove={handleViewportPointerMove}
+                onPointerUp={stopViewportPan}
+                onPointerCancel={stopViewportPan}
+                onWheel={handleViewportWheel}
               >
-                <svg className="connector-layer" aria-hidden="true">
-                  {connectorPaths.map((connector) => (
-                    <path
-                      key={connector.id}
-                      className={classNames(
-                        connector.levelClass,
-                        connector.virtual && "virtual-connector",
-                        connector.transient && "transient-connector"
-                      )}
-                      d={connector.d}
-                    />
-                  ))}
-                </svg>
-                <aside className="branch branch-left" aria-label="Left branch">
-                  {(leftNodes.length > 0 || canShowVirtualLeftRoot) && (
-                    <div className="root-child-column">
-                      {leftNodes.map((node) => renderNodeEditor(node, "left"))}
-                      {canShowVirtualLeftRoot && renderVirtualRootEditor("left")}
-                    </div>
-                  )}
-                </aside>
-
-                <section className="root-node" aria-label="Root node">
-                  <NodeTextArea
-                    className={classNames(
-                      viewState.selectedNodePath === rootNodePath && "selected",
-                      rootEditing && "editing",
-                      searchMatchPaths.has(rootNodePath) && "search-match",
-                      currentSearchPath === rootNodePath && "current-search-match",
-                      rootDropTarget && `drop-${rootDropTarget.position}`,
-                      rootDropTarget?.rootDirection &&
-                        `drop-${rootDropTarget.rootDirection}`
+                <section
+                  className={`workspace${leftNodes.length > 0 ? " has-left" : ""}${
+                    rightNodes.length > 0 ? " has-right" : ""
+                  }`}
+                  ref={workspaceRef}
+                  style={workspaceStyle}
+                >
+                  <svg className="connector-layer" aria-hidden="true">
+                    {connectorPaths.map((connector) => (
+                      <path
+                        key={connector.id}
+                        className={classNames(
+                          connector.levelClass,
+                          connector.virtual && "virtual-connector",
+                          connector.transient && "transient-connector"
+                        )}
+                        d={connector.d}
+                      />
+                    ))}
+                  </svg>
+                  <aside className="branch branch-left" aria-label="Left branch">
+                    {(leftNodes.length > 0 || canShowVirtualLeftRoot) && (
+                      <div className="root-child-column">
+                        {leftNodes.map((node) => renderNodeEditor(node, "left"))}
+                        {canShowVirtualLeftRoot && renderVirtualRootEditor("left")}
+                      </div>
                     )}
-                    path={rootNodePath}
-                    value={mindmap!.title}
-                    width={getRootInputWidth(mindmap!.title)}
-                    ariaLabel="Root heading"
-                    readOnly={!rootEditing}
-                    editOnClick={
-                      viewState.selectedNodePath === rootNodePath && !rootEditing
-                    }
-                    onFocus={() => selectNode(rootNodePath, rootEditing)}
-                    onEditClick={() => selectNode(rootNodePath, true)}
-                    onToggleSelect={() => selectNode(rootNodePath, false)}
-                    onRangeSelect={() => selectNode(rootNodePath, false)}
-                    onChange={(text) =>
-                      commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
-                    }
-                    onBlur={() => exitEditingIfCurrent(rootNodePath)}
-                    onDragPointerDown={undefined}
-                    onDragPointerMove={undefined}
-                    onDragPointerUp={undefined}
-                    onDragPointerCancel={undefined}
-                    onKeyDown={(event) => {
-                      if (!rootEditing) {
-                        if (event.key === "Enter") {
+                  </aside>
+
+                  <section className="root-node" aria-label="Root node">
+                    <NodeTextArea
+                      className={classNames(
+                        viewState.selectedNodePath === rootNodePath && "selected",
+                        rootEditing && "editing",
+                        searchMatchPaths.has(rootNodePath) && "search-match",
+                        currentSearchPath === rootNodePath && "current-search-match",
+                        rootDropTarget && `drop-${rootDropTarget.position}`,
+                        rootDropTarget?.rootDirection &&
+                          `drop-${rootDropTarget.rootDirection}`
+                      )}
+                      path={rootNodePath}
+                      value={mindmap!.title}
+                      width={getRootInputWidth(mindmap!.title)}
+                      ariaLabel="Root heading"
+                      readOnly={!rootEditing}
+                      editOnClick={
+                        viewState.selectedNodePath === rootNodePath && !rootEditing
+                      }
+                      onFocus={() => selectNode(rootNodePath, rootEditing)}
+                      onEditClick={() => selectNode(rootNodePath, true)}
+                      onToggleSelect={() => selectNode(rootNodePath, false)}
+                      onRangeSelect={() => selectNode(rootNodePath, false)}
+                      onChange={(text) => {
+                        if (hasRootTitleTrailingSpace(text)) {
+                          return;
+                        }
+
+                        const title = canonicalRootTitle(text);
+                        if (title !== mindmap!.title) {
+                          commitMindmap(
+                            updateRootTitle(mindmap!, title),
+                            "Edit root heading"
+                          );
+                        }
+                      }}
+                      onBlur={(_, text) => {
+                        const title = canonicalRootTitle(text);
+                        if (title !== mindmap!.title) {
+                          commitMindmap(
+                            updateRootTitle(mindmap!, title),
+                            "Edit root heading"
+                          );
+                        }
+                        exitEditingIfCurrent(rootNodePath);
+                      }}
+                      onDragPointerDown={undefined}
+                      onDragPointerMove={undefined}
+                      onDragPointerUp={undefined}
+                      onDragPointerCancel={undefined}
+                      onKeyDown={(event) => {
+                        if (!rootEditing) {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            selectNode(rootNodePath, true);
+                          }
+                          return;
+                        }
+
+                        if (isImeComposing(event)) {
+                          return;
+                        }
+
+                        if (
+                          event.key === "Enter" ||
+                          (event.key === "Tab" && event.shiftKey)
+                        ) {
                           event.preventDefault();
                           selectNode(rootNodePath, true);
+                          return;
                         }
-                        return;
-                      }
 
-                      if (isImeComposing(event)) {
-                        return;
-                      }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          selectNode(rootNodePath, false);
+                          event.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  </section>
 
-                      if (event.key === "Enter" || (event.key === "Tab" && event.shiftKey)) {
-                        event.preventDefault();
-                        selectNode(rootNodePath, true);
-                        return;
-                      }
-
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        selectNode(rootNodePath, false);
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
+                  <aside className="branch branch-right" aria-label="Right branch">
+                    {(rightNodes.length > 0 || canShowVirtualRightRoot) && (
+                      <div className="root-child-column">
+                        {rightNodes.map((node) => renderNodeEditor(node, "right"))}
+                        {canShowVirtualRightRoot && renderVirtualRootEditor("right")}
+                      </div>
+                    )}
+                  </aside>
                 </section>
-
-                <aside className="branch branch-right" aria-label="Right branch">
-                  {(rightNodes.length > 0 || canShowVirtualRightRoot) && (
-                    <div className="root-child-column">
-                      {rightNodes.map((node) => renderNodeEditor(node, "right"))}
-                      {canShowVirtualRightRoot && renderVirtualRootEditor("right")}
-                    </div>
-                  )}
-                </aside>
               </section>
+              {layoutOverview && <LayoutOverview overview={layoutOverview} />}
             </section>
 
             <section className="markdown-panel" aria-label="Markdown output">
@@ -2994,6 +3060,55 @@ function CommandPaletteModal({
   );
 }
 
+function LayoutOverview({ overview }: { overview: LayoutOverviewModel }) {
+  return (
+    <aside className="layout-overview" aria-label="Layout overview">
+      <svg viewBox={overview.viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        {overview.connectors.map((connector) => (
+          <path
+            key={connector.id}
+            className={classNames(
+              "layout-overview-connector",
+              connector.levelClass,
+              connector.virtual && "virtual-connector",
+              connector.transient && "transient-connector"
+            )}
+            d={connector.d}
+          />
+        ))}
+        {overview.nodes.map((node) => (
+          <rect
+            key={node.path}
+            className={classNames(
+              "layout-overview-node",
+              node.levelClass,
+              node.root && "layout-overview-root",
+              node.virtual && "layout-overview-virtual",
+              node.transient && "layout-overview-transient",
+              node.selected && "layout-overview-selected"
+            )}
+            x={node.x}
+            y={node.y}
+            width={node.width}
+            height={node.height}
+            rx={4}
+          />
+        ))}
+        {overview.viewport && (
+          <rect
+            className="layout-overview-viewport"
+            x={overview.viewport.x}
+            y={overview.viewport.y}
+            width={overview.viewport.width}
+            height={overview.viewport.height}
+            rx={8}
+          />
+        )}
+      </svg>
+    </aside>
+  );
+}
+
 function NodeTextArea({
   className,
   path,
@@ -3026,7 +3141,7 @@ function NodeTextArea({
   onToggleSelect: () => void;
   onRangeSelect: () => void;
   onChange: (text: string) => void;
-  onBlur: (nextFocusedNode: FocusedNodeTarget | null) => void;
+  onBlur: (nextFocusedNode: FocusedNodeTarget | null, text: string) => void;
   onDragPointerDown?: (event: PointerEvent<HTMLTextAreaElement>) => void;
   onDragPointerMove?: (event: PointerEvent<HTMLTextAreaElement>) => void;
   onDragPointerUp?: (event: PointerEvent<HTMLTextAreaElement>) => void;
@@ -3041,6 +3156,79 @@ function NodeTextArea({
     y: number;
   } | null>(null);
   const suppressClickRef = useRef(false);
+  const isComposingTextRef = useRef(false);
+  const hasTextFocusRef = useRef(false);
+  const lastNotifiedValueRef = useRef(value);
+  const compositionFlushFrameRef = useRef<number | null>(null);
+  const selectionSnapshotRef = useRef<TextSelectionSnapshot | null>(null);
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    if (isComposingTextRef.current) {
+      return;
+    }
+
+    if (hasTextFocusRef.current && !readOnly) {
+      return;
+    }
+
+    lastNotifiedValueRef.current = value;
+    setDraftValue((current) => (current === value ? current : value));
+  }, [readOnly, value]);
+
+  const notifyTextChange = useCallback(
+    (nextValue: string) => {
+      if (lastNotifiedValueRef.current === nextValue) {
+        return;
+      }
+
+      lastNotifiedValueRef.current = nextValue;
+      onChange(nextValue);
+    },
+    [onChange]
+  );
+
+  const rememberSelection = useCallback((textArea: HTMLTextAreaElement) => {
+    selectionSnapshotRef.current = {
+      start: textArea.selectionStart,
+      end: textArea.selectionEnd,
+      direction: textArea.selectionDirection
+    };
+  }, []);
+
+  const flushTextValue = useCallback(
+    (nextValue: string) => {
+      isComposingTextRef.current = false;
+      setDraftValue(nextValue);
+      notifyTextChange(nextValue);
+    },
+    [notifyTextChange]
+  );
+
+  const scheduleCompositionFlush = useCallback(() => {
+    if (compositionFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(compositionFlushFrameRef.current);
+    }
+
+    compositionFlushFrameRef.current = window.requestAnimationFrame(() => {
+      compositionFlushFrameRef.current = null;
+      const textArea = textAreaRef.current;
+      if (!textArea) {
+        return;
+      }
+
+      flushTextValue(toSingleLineNodeText(textArea.value));
+    });
+  }, [flushTextValue]);
+
+  useEffect(
+    () => () => {
+      if (compositionFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(compositionFlushFrameRef.current);
+      }
+    },
+    []
+  );
 
   useLayoutEffect(() => {
     const textArea = textAreaRef.current;
@@ -3050,14 +3238,29 @@ function NodeTextArea({
 
     textArea.style.height = "auto";
     textArea.style.height = `${textArea.scrollHeight}px`;
-  }, [value, width]);
+
+    const selection = selectionSnapshotRef.current;
+    if (
+      selection &&
+      hasTextFocusRef.current &&
+      !readOnly &&
+      globalThis.document?.activeElement === textArea
+    ) {
+      const max = textArea.value.length;
+      textArea.setSelectionRange(
+        Math.min(selection.start, max),
+        Math.min(selection.end, max),
+        selection.direction
+      );
+    }
+  }, [draftValue, readOnly, width]);
 
   return (
     <textarea
       ref={textAreaRef}
       className={className}
       data-node-path={path}
-      value={value}
+      value={draftValue}
       rows={1}
       wrap="soft"
       style={{ width }}
@@ -3120,9 +3323,52 @@ function NodeTextArea({
         }
         editOnClickRef.current = false;
       }}
-      onFocus={onFocus}
-      onChange={(event) => onChange(toSingleLineNodeText(event.target.value))}
-      onBlur={(event) => onBlur(nodeTargetFromRelatedTarget(event))}
+      onFocus={() => {
+        hasTextFocusRef.current = true;
+        onFocus();
+      }}
+      onChange={(event) => {
+        const nextValue = toSingleLineNodeText(event.target.value);
+        rememberSelection(event.currentTarget);
+        setDraftValue(nextValue);
+        if (isComposingTextRef.current) {
+          return;
+        }
+
+        notifyTextChange(nextValue);
+      }}
+      onCompositionStart={(event) => {
+        if (compositionFlushFrameRef.current !== null) {
+          window.cancelAnimationFrame(compositionFlushFrameRef.current);
+          compositionFlushFrameRef.current = null;
+        }
+
+        isComposingTextRef.current = true;
+        rememberSelection(event.currentTarget);
+        setDraftValue(toSingleLineNodeText(event.currentTarget.value));
+      }}
+      onCompositionEnd={() => {
+        isComposingTextRef.current = false;
+        scheduleCompositionFlush();
+      }}
+      onBlur={(event) => {
+        const hadPendingCompositionFlush = compositionFlushFrameRef.current !== null;
+        if (compositionFlushFrameRef.current !== null) {
+          window.cancelAnimationFrame(compositionFlushFrameRef.current);
+          compositionFlushFrameRef.current = null;
+        }
+
+        hasTextFocusRef.current = false;
+        if (isComposingTextRef.current || hadPendingCompositionFlush) {
+          flushTextValue(toSingleLineNodeText(event.currentTarget.value));
+        }
+
+        onBlur(
+          nodeTargetFromRelatedTarget(event),
+          toSingleLineNodeText(event.currentTarget.value)
+        );
+      }}
+      onSelect={(event) => rememberSelection(event.currentTarget)}
       onKeyDown={onKeyDown}
     />
   );
@@ -3280,8 +3526,8 @@ function NodeEditor({
           onToggleSelect={() => onToggleSelect(node.path)}
           onRangeSelect={() => onSelectRange(node.path)}
           onChange={(text) => onTextChange(node.path, text)}
-          onBlur={(nextFocusedPath) => {
-            if (node.text.length === 0 && node.children.length === 0) {
+          onBlur={(nextFocusedPath, text) => {
+            if (text.length === 0 && node.children.length === 0) {
               onDeleteEmpty(node.path, nextFocusedPath);
             } else if (nextFocusedPath?.editing) {
               return;
@@ -3396,6 +3642,14 @@ function NodeEditor({
 
 function toSingleLineNodeText(text: string): string {
   return text.replace(/\r\n|\r|\n/g, " ");
+}
+
+function canonicalRootTitle(text: string): string {
+  return text.replace(/[ \t]+$/g, "");
+}
+
+function hasRootTitleTrailingSpace(text: string): boolean {
+  return /[ \t]$/u.test(text);
 }
 
 function classNames(...parts: Array<string | false | null | undefined>): string {
@@ -4646,6 +4900,97 @@ function buildConnectorPaths(
 
   addNodeConnectors(rootNodePath, mindmap.children);
   return paths;
+}
+
+function buildLayoutOverview(
+  workspace: HTMLElement,
+  connectors: ConnectorPath[],
+  zoom: number,
+  selectedPaths: Set<string>
+): LayoutOverviewModel | null {
+  const workspaceRect = workspace.getBoundingClientRect();
+  const scale = zoom || 1;
+  const nodes = Array.from(
+    workspace.querySelectorAll<HTMLElement>("[data-node-path]")
+  ).flatMap<LayoutOverviewNode>((element) => {
+    const path = element.dataset.nodePath;
+    if (!path) {
+      return [];
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return [];
+    }
+
+    return [
+      {
+        path,
+        x: (rect.left - workspaceRect.left) / scale,
+        y: (rect.top - workspaceRect.top) / scale,
+        width: rect.width / scale,
+        height: rect.height / scale,
+        levelClass: nodeLevelClass(path),
+        root: isRootNodePath(path),
+        virtual: isVirtualRootPath(path),
+        transient: element.classList.contains("transient-empty"),
+        selected: selectedPaths.has(path)
+      }
+    ];
+  });
+
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const padding = 36;
+  const minX = Math.min(...nodes.map((node) => node.x));
+  const minY = Math.min(...nodes.map((node) => node.y));
+  const maxX = Math.max(...nodes.map((node) => node.x + node.width));
+  const maxY = Math.max(...nodes.map((node) => node.y + node.height));
+  const viewMinX = minX - padding;
+  const viewMinY = minY - padding;
+  const viewWidth = Math.max(1, maxX - minX + padding * 2);
+  const viewHeight = Math.max(1, maxY - minY + padding * 2);
+  const viewport = layoutOverviewViewport(workspace, scale);
+
+  return {
+    viewBox: [
+      roundPathNumber(viewMinX),
+      roundPathNumber(viewMinY),
+      roundPathNumber(viewWidth),
+      roundPathNumber(viewHeight)
+    ].join(" "),
+    nodes: nodes.map((node) => ({
+      ...node,
+      x: roundPathNumber(node.x),
+      y: roundPathNumber(node.y),
+      width: roundPathNumber(node.width),
+      height: roundPathNumber(node.height)
+    })),
+    connectors,
+    viewport
+  };
+}
+
+function layoutOverviewViewport(
+  workspace: HTMLElement,
+  scale: number
+): LayoutOverviewRect | null {
+  const viewport = workspace.closest<HTMLElement>(".workspace-viewport");
+  if (!viewport) {
+    return null;
+  }
+
+  const workspaceRect = workspace.getBoundingClientRect();
+  const viewportRect = viewport.getBoundingClientRect();
+
+  return {
+    x: roundPathNumber((viewportRect.left - workspaceRect.left) / scale),
+    y: roundPathNumber((viewportRect.top - workspaceRect.top) / scale),
+    width: roundPathNumber(viewportRect.width / scale),
+    height: roundPathNumber(viewportRect.height / scale)
+  };
 }
 
 function nodeElement(workspace: HTMLElement, path: string): HTMLElement | null {
