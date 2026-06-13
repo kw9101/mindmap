@@ -266,6 +266,22 @@ test("mouse click selects a node and a second click starts editing", async ({ pa
   await expect(first).toHaveValue("AX");
 });
 
+test("selection and editing modes have distinct visual states", async ({ page }) => {
+  const node = nodeInput(page, "right/0");
+  await node.fill("Idea");
+  await node.press("Escape");
+
+  await expect(node).toHaveAttribute("readonly", "");
+  await expect(node).toHaveClass(/selected/);
+  await expect(node).not.toHaveClass(/editing/);
+
+  await node.press("Enter");
+
+  await expect(node).not.toHaveAttribute("readonly", "");
+  await expect(node).toHaveClass(/selected/);
+  await expect(node).toHaveClass(/editing/);
+});
+
 test("mouse drag moves a node before a sibling", async ({ page }) => {
   const first = nodeInput(page, "right/0");
   await first.fill("A");

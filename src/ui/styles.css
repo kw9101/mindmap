@@ -378,6 +378,16 @@ kbd {
   box-shadow: 0 0 0 2px #e8f0ff;
 }
 
+.root-node textarea.editing,
+.node-input.editing {
+  border-color: #15966f;
+  background: #fbfffd;
+  box-shadow:
+    0 0 0 1px #15966f,
+    0 0 0 4px #d8f3e8;
+  caret-color: #0f6f54;
+}
+
 .root-node textarea[readonly],
 .node-input[readonly] {
   cursor: default;

@@ -1697,6 +1697,7 @@ export function App() {
                 <NodeTextArea
                   className={classNames(
                     viewState.selectedNodePath === rootNodePath && "selected",
+                    rootEditing && "editing",
                     rootDropTarget && `drop-${rootDropTarget.position}`,
                     rootDropTarget?.rootDirection && `drop-${rootDropTarget.rootDirection}`
                   )}
@@ -2098,6 +2099,7 @@ function NodeEditor({
             "node-input",
             selected && "selected",
             selected && !primarySelected && "secondary-selected",
+            editing && "editing",
             !editing && "draggable-node",
             dragSourcePath === node.path && "drag-source",
             dropTarget?.targetPath === node.path && `drop-${dropTarget.position}`

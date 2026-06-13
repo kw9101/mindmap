@@ -37,6 +37,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 명시적 Markdown 정규화 명령
 - SQLite sidecar 기반 view state 저장
 - 선택 모드 기반 키보드 이동과 다중 선택
+- 선택 모드와 편집 모드의 명확한 시각 구분
 - 키바인딩 도움말
 - Markdown subtree 클립보드 복사/잘라내기/붙여넣기
 - 캔버스 드래그 pan과 SQLite view state 저장
@@ -122,6 +123,5 @@ pnpm tauri dev
 
 ## 다음 행동
 
-1. 선택 모드와 편집 모드의 시각적 구분을 더 다듬는다.
-2. 노드별 작은 점/핸들 hover UI를 추가한다.
-3. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. 노드별 작은 점/핸들 hover UI를 추가한다.
+2. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
