@@ -69,8 +69,10 @@ import {
 } from "../core/tree";
 import {
   createDefaultViewState,
+  formatPan,
   formatZoom,
   panBy,
+  panNudgeStep,
   parseViewState,
   resetPan,
   resetZoom,
@@ -656,6 +658,13 @@ export function App() {
     setViewState((current) => ({
       ...current,
       pan: resetPan()
+    }));
+  }, []);
+
+  const handlePanNudge = useCallback((deltaX: number, deltaY: number) => {
+    setViewState((current) => ({
+      ...current,
+      pan: panBy(current.pan, deltaX, deltaY)
     }));
   }, []);
 
@@ -1610,8 +1619,50 @@ export function App() {
             >
               +
             </button>
+          </div>
+          <div className="pan-controls" aria-label="Pan controls">
             <button
               type="button"
+              className="pan-up"
+              aria-label="Pan up"
+              title="Pan up"
+              onClick={() => handlePanNudge(0, -panNudgeStep)}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="pan-left"
+              aria-label="Pan left"
+              title="Pan left"
+              onClick={() => handlePanNudge(-panNudgeStep, 0)}
+            >
+              ←
+            </button>
+            <output className="pan-readout" aria-label="Pan offset">
+              {formatPan(viewState.pan)}
+            </output>
+            <button
+              type="button"
+              className="pan-right"
+              aria-label="Pan right"
+              title="Pan right"
+              onClick={() => handlePanNudge(panNudgeStep, 0)}
+            >
+              →
+            </button>
+            <button
+              type="button"
+              className="pan-down"
+              aria-label="Pan down"
+              title="Pan down"
+              onClick={() => handlePanNudge(0, panNudgeStep)}
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              className="pan-reset"
               aria-label="Reset pan"
               title="Reset pan"
               onClick={handleResetPan}

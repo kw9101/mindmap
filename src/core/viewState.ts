@@ -12,6 +12,7 @@ export const viewStateKey = "view_state";
 export const minZoom = 0.5;
 export const maxZoom = 2;
 export const zoomStep = 0.1;
+export const panNudgeStep = 8;
 const minPan = -20000;
 const maxPan = 20000;
 
@@ -115,6 +116,10 @@ export function resetPan(): MindmapViewState["pan"] {
 
 export function formatZoom(zoom: number): string {
   return `${Math.round(clampZoom(zoom) * 100)}%`;
+}
+
+export function formatPan(pan: MindmapViewState["pan"]): string {
+  return `X ${Math.round(pan.x)} Y ${Math.round(pan.y)}`;
 }
 
 function clampZoom(zoom: number): number {

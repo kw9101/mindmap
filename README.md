@@ -40,7 +40,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 선택 모드와 편집 모드의 명확한 시각 구분
 - 키바인딩 도움말
 - Markdown subtree 클립보드 복사/잘라내기/붙여넣기
-- 캔버스 드래그 pan과 SQLite view state 저장
+- 캔버스 드래그/버튼 pan, 상태 표시, SQLite view state 저장
 - 마우스 드래그 기반 노드 재배치
 - 노드 hover/focus 보조 핸들 기반 자식 추가, 형제 추가, 삭제
 - 노드 접기/펼치기와 큰 마인드맵용 가로 확장 레이아웃
@@ -115,6 +115,7 @@ pnpm tauri dev
 - 선택 모드 `Cmd/Ctrl+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - 빈 캔버스 드래그: 화면 pan
 - 마우스 휠: 화면 확대/축소
+- pan 화살표: 화면 위치를 8px 단위로 조정
 - `Center`: pan 위치 초기화
 - `Cmd+Z`: undo
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
@@ -125,5 +126,4 @@ pnpm tauri dev
 
 ## 다음 행동
 
-1. pan 상태 표시 또는 세밀 조절 UI를 추가하고 SQLite view state에 연결한다.
-2. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

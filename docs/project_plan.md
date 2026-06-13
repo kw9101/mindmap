@@ -653,9 +653,9 @@ SQLite에 저장하지 않는 문서 데이터:
 - 큰 마인드맵에서 깊은 노드가 서로 겹치지 않도록 workspace를 content-width 기반으로 확장하고, viewport에서 스크롤할 수 있게 했다.
 - 노드 옆에 상시 노출되던 `+`, `S`, `Del` 액션 버튼을 제거했다. 자식 추가, 형제 추가, 삭제는 키보드 단축키로 수행한다.
 - 노드 hover/focus 보조 핸들을 추가했다. 기본 화면은 조용하게 유지하고, 필요한 경우 작은 원형 버튼으로 자식 추가, 다음 형제 추가, 삭제를 수행한다.
-- 검증: Vitest 82개 통과, Playwright e2e 56개 통과, TypeScript check 통과, Vite production build 통과, `cargo check` 통과.
+- pan 상태 표시와 8px 단위 방향 조절 버튼을 추가했다. 이 값은 기존 `viewState.pan`을 그대로 사용하므로 SQLite view state 저장과 함께 동작한다.
+- 검증: Vitest 82개 통과, Playwright e2e 57개 통과, TypeScript check 통과, Vite production build 통과, `cargo check` 통과.
 
 ## 17. 남은 구현 후보
 
-1. pan 상태 표시 또는 세밀 조절 UI를 추가하고 SQLite view state에 연결한다.
-2. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.
+1. file watcher 동작을 실제 Tauri 앱에서 장시간 테스트한다.

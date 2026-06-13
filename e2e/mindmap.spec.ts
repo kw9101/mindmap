@@ -208,6 +208,30 @@ test("canvas can pan by dragging and reset to center", async ({ page }) => {
     .toEqual({ x: "0px", y: "0px" });
 });
 
+test("pan controls display and nudge the workspace offset", async ({ page }) => {
+  const workspace = page.locator(".workspace");
+  const panOffset = page.getByLabel("Pan offset");
+
+  await expect(panOffset).toHaveText("X 0 Y 0");
+  await page.getByRole("button", { name: "Pan right" }).click();
+  await page.getByRole("button", { name: "Pan down" }).click();
+
+  await expect(panOffset).toHaveText("X 8 Y 8");
+  await expect
+    .poll(() =>
+      workspace.evaluate((element) => ({
+        x: getComputedStyle(element).getPropertyValue("--workspace-pan-x").trim(),
+        y: getComputedStyle(element).getPropertyValue("--workspace-pan-y").trim()
+      }))
+    )
+    .toEqual({ x: "8px", y: "8px" });
+
+  await page.getByRole("button", { name: "Pan left" }).click();
+  await page.getByRole("button", { name: "Pan up" }).click();
+
+  await expect(panOffset).toHaveText("X 0 Y 0");
+});
+
 test("node action buttons are not shown inline", async ({ page }) => {
   await expect(page.getByRole("button", { exact: true, name: "Add child node" })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Add sibling node" })).toHaveCount(0);
@@ -1096,9 +1120,15 @@ test("mobile viewport keeps curved connectors and draggable pan", async ({ page 
   await expect(nodeInput(page, "right/0/0")).toBeVisible();
   await nodeInput(page, "right/0/0").fill("Child");
 
-  await page.mouse.move(24, 210);
+  const viewport = page.getByLabel("Mindmap canvas");
+  const box = await viewport.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + 24;
+  const startY = box!.y + 24;
+
+  await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(84, 250);
+  await page.mouse.move(startX + 60, startY + 40);
   await page.mouse.up();
 
   const mobileState = await page.evaluate(() => {

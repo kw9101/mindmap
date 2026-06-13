@@ -55,7 +55,7 @@ button:disabled:hover {
 }
 
 .topbar {
-  height: 58px;
+  min-height: 58px;
   padding: 10px 16px;
   border-bottom: 1px solid #dfe2e7;
   background: #ffffff;
@@ -102,6 +102,40 @@ button:disabled:hover {
 
 .zoom-controls button[aria-label="Reset zoom"] {
   min-width: 58px;
+}
+
+.pan-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding-left: 8px;
+  border-left: 1px solid #dfe2e7;
+}
+
+.pan-controls button {
+  width: 34px;
+  min-width: 34px;
+}
+
+.pan-reset {
+  width: auto;
+  min-width: 64px;
+  height: 34px;
+}
+
+.pan-readout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #dfe2e7;
+  border-radius: 6px;
+  color: #516071;
+  background: #f8fafc;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .modal-backdrop {
@@ -724,7 +758,8 @@ kbd {
     gap: 6px;
   }
 
-  .zoom-controls {
+  .zoom-controls,
+  .pan-controls {
     padding-left: 0;
     border-left: 0;
   }

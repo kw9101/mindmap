@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   createDefaultViewState,
+  formatPan,
   formatZoom,
+  panNudgeStep,
   parseViewState,
   panBy,
   resetPan,
@@ -86,11 +88,13 @@ describe("view state", () => {
   });
 
   it("changes pan in rounded clamped pixel deltas", () => {
+    expect(panNudgeStep).toBe(8);
     expect(panBy({ x: 0, y: 0 }, 12.4, -8.6)).toEqual({ x: 12, y: -9 });
     expect(panBy({ x: 19999, y: -19999 }, 20, -20)).toEqual({
       x: 20000,
       y: -20000
     });
     expect(resetPan()).toEqual({ x: 0, y: 0 });
+    expect(formatPan({ x: 12.4, y: -8.6 })).toBe("X 12 Y -9");
   });
 });
