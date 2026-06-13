@@ -103,6 +103,24 @@ test("Enter moves to an existing next sibling before creating one", async ({ pag
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
 });
 
+test("Cmd/Ctrl+Enter while editing inserts a sibling below", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+
+  await first.click();
+  await page.keyboard.press("Enter");
+  await expect(first).not.toHaveAttribute("readonly", "");
+
+  await page.keyboard.press("Control+Enter");
+
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(nodeInput(page, "right/1")).toHaveValue("");
+  await expect(nodeInput(page, "right/2")).toHaveValue("B");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n- B\n");
+});
+
 test("empty leaf nodes are removed when they lose focus", async ({ page }) => {
   const first = nodeInput(page, "right/0");
   await first.fill("A");
@@ -654,6 +672,24 @@ test("selection mode Enter starts editing without moving nodes", async ({ page }
 
   await expect(parent).toHaveValue("Parent!");
   await expect(markdownOutput(page)).toHaveText("#\n\n- Parent!\n  - Child\n");
+});
+
+test("selection mode Cmd/Ctrl+Enter inserts a sibling below", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("A");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("B");
+  await nodeInput(page, "right/1").press("Escape");
+
+  await first.click();
+  await expect(first).toHaveAttribute("readonly", "");
+
+  await page.keyboard.press("Control+Enter");
+
+  await expect(nodeInput(page, "right/1")).toBeFocused();
+  await expect(nodeInput(page, "right/1")).not.toHaveAttribute("readonly", "");
+  await expect(nodeInput(page, "right/2")).toHaveValue("B");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n- B\n");
 });
 
 test("selection mode Tab stays in the app and creates or selects child nodes", async ({

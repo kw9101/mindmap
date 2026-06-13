@@ -179,6 +179,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
     title: "편집 중",
     shortcuts: [
       { keys: "Enter", action: "다음 형제로 이동 또는 생성" },
+      { keys: "Cmd/Ctrl+Enter", action: "아래 형제 노드 추가" },
       { keys: "Shift+Enter", action: "위 형제로 이동 또는 생성" },
       { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
       { keys: "Shift+Tab", action: "부모 노드 편집" },
@@ -194,6 +195,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "ArrowLeft/Right", action: "화면상 왼쪽/오른쪽 노드 선택" },
       { keys: "Shift+Arrow", action: "범위 선택 확장" },
       { keys: "Enter", action: "편집 시작" },
+      { keys: "Cmd/Ctrl+Enter", action: "아래 형제 노드 추가" },
       { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
       { keys: "Shift+Tab", action: "부모 노드 선택" },
       { keys: "Space", action: "자식 접기/펼치기" },
@@ -1803,6 +1805,9 @@ export function App() {
             "Add child node",
             lastChildPath(next, viewState.selectedNodePath)
           );
+        } else if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          handleAddSiblingAfterSelectedNode();
         } else if (event.key === "Enter") {
           event.preventDefault();
           selectNode(viewState.selectedNodePath, true);
@@ -1828,6 +1833,7 @@ export function App() {
     closeCommandPalette,
     expandNode,
     focusSearchInput,
+    handleAddSiblingAfterSelectedNode,
     handleCopySubtree,
     handleCutSubtree,
     handleDeleteSelectedNodes,
@@ -2852,6 +2858,8 @@ function NodeEditor({
 
             if (shortcut === "add-sibling") {
               onFocusNextOrCreate(node.path);
+            } else if (shortcut === "add-sibling-below") {
+              onAddSibling(node.path);
             } else if (shortcut === "add-child") {
               onFocusChildOrCreate(node.path);
             } else if (shortcut === "exit-editing") {

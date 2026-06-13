@@ -28,6 +28,7 @@ export function isImeComposing(event: KeyboardCompositionEventLike): boolean {
 
 export type NodeEditingShortcut =
   | "add-sibling"
+  | "add-sibling-below"
   | "add-child"
   | "exit-editing"
   | "focus-previous"
@@ -43,6 +44,10 @@ export function getNodeEditingShortcut(
 ): NodeEditingShortcut | null {
   if (isImeComposing(event)) {
     return null;
+  }
+
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
+    return "add-sibling-below";
   }
 
   if (event.key === "Enter" && event.shiftKey) {

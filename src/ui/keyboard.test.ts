@@ -42,6 +42,18 @@ describe("node editing shortcuts", () => {
     );
   });
 
+  it("uses Cmd or Ctrl Enter to add a sibling below while editing", () => {
+    expect(getNodeEditingShortcut({ key: "Enter", metaKey: true })).toBe(
+      "add-sibling-below"
+    );
+    expect(getNodeEditingShortcut({ key: "Enter", ctrlKey: true })).toBe(
+      "add-sibling-below"
+    );
+    expect(
+      getNodeEditingShortcut({ key: "Enter", ctrlKey: true, shiftKey: true })
+    ).toBe("focus-previous");
+  });
+
   it("uses Cmd or Ctrl arrows to move nodes while editing", () => {
     expect(getNodeEditingShortcut({ key: "ArrowUp", metaKey: true })).toBe(
       "move-up"
