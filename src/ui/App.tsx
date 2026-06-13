@@ -192,7 +192,8 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
       { keys: "Cmd/Ctrl+X", action: "선택 subtree 잘라내기" },
-      { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
+      { keys: "Cmd/Ctrl+V", action: "붙여넣기" },
+      { keys: "Cmd/Ctrl+F", action: "노드 검색" }
     ]
   },
   {
@@ -237,6 +238,7 @@ export function App() {
   );
   const [connectorPaths, setConnectorPaths] = useState<ConnectorPath[]>([]);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const panDragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -402,6 +404,13 @@ export function App() {
     },
     [currentSearchIndex, focusSearchMatchAtIndex, searchMatches.length]
   );
+
+  const focusSearchInput = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  }, []);
 
   const selectNodeRange = useCallback(
     (path: string) => {
@@ -1343,6 +1352,9 @@ export function App() {
       } else if (!editing && (event.key === "?" || (event.shiftKey && event.key === "/"))) {
         event.preventDefault();
         setShowKeyboardHelp(true);
+      } else if ((event.metaKey || event.ctrlKey) && key === "f") {
+        event.preventDefault();
+        focusSearchInput();
       } else if ((event.metaKey || event.ctrlKey) && key === "s") {
         event.preventDefault();
         void handleSave();
@@ -1456,6 +1468,7 @@ export function App() {
   }, [
     commitMindmap,
     expandNode,
+    focusSearchInput,
     handleCopySubtree,
     handleCutSubtree,
     handleDeleteSelectedNodes,
@@ -1632,6 +1645,7 @@ export function App() {
           </button>
           <div className="search-controls" role="search" aria-label="Node search">
             <input
+              ref={searchInputRef}
               type="search"
               className="search-input"
               aria-label="Search nodes"

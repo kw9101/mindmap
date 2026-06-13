@@ -238,7 +238,9 @@ test("node search highlights matches and jumps between nodes", async ({ page }) 
   await first.press("Enter");
   await nodeInput(page, "right/1").fill("Beta Alpha");
 
+  await page.keyboard.press("Control+F");
   const search = page.getByLabel("Search nodes");
+  await expect(search).toBeFocused();
   await search.fill("alpha");
 
   await expect(page.getByLabel("Search result count")).toHaveText("1/2");

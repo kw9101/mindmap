@@ -118,7 +118,7 @@ pnpm tauri dev
 - 선택 모드 `Cmd/Ctrl+C`: 선택 subtree를 Markdown 목록으로 복사
 - 선택 모드 `Cmd/Ctrl+X`: 선택 subtree를 Markdown 목록으로 복사한 뒤 삭제
 - 선택 모드 `Cmd/Ctrl+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
-- `Search`: 노드 텍스트 검색, `Enter` 다음 결과, `Shift+Enter` 이전 결과
+- `Search` 또는 `Cmd/Ctrl+F`: 노드 텍스트 검색, `Enter` 다음 결과, `Shift+Enter` 이전 결과
 - 빈 캔버스 드래그: 화면 pan
 - 마우스 휠: 화면 확대/축소
 - pan 화살표: 화면 위치를 8px 단위로 조정
