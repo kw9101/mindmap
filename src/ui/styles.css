@@ -104,6 +104,43 @@ button:disabled:hover {
   min-width: 58px;
 }
 
+.search-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 1px solid #dfe2e7;
+}
+
+.search-input {
+  width: 132px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c8ccd2;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #4d88ff;
+  box-shadow: 0 0 0 3px #dce8ff;
+}
+
+.search-count {
+  min-width: 42px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid #dfe2e7;
+  border-radius: 6px;
+  color: #516071;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
 .pan-controls {
   display: flex;
   gap: 4px;
@@ -420,6 +457,38 @@ kbd {
     0 0 0 1px #15966f,
     0 0 0 4px #d8f3e8;
   caret-color: #0f6f54;
+}
+
+.root-node textarea.search-match,
+.node-input.search-match {
+  border-color: #d97706;
+  box-shadow: 0 0 0 3px #fde68a;
+}
+
+.root-node textarea.search-match.selected,
+.node-input.search-match.selected {
+  box-shadow:
+    0 0 0 2px #dce8ff,
+    0 0 0 5px #fde68a;
+}
+
+.root-node textarea.search-match.editing,
+.node-input.search-match.editing {
+  border-color: #15966f;
+  box-shadow:
+    0 0 0 1px #15966f,
+    0 0 0 4px #d8f3e8,
+    0 0 0 7px #fde68a;
+}
+
+.root-node textarea.current-search-match,
+.node-input.current-search-match {
+  border-color: #b45309;
+}
+
+.root-node textarea.current-search-match.editing,
+.node-input.current-search-match.editing {
+  border-color: #15966f;
 }
 
 .root-node textarea[readonly],
@@ -759,6 +828,7 @@ kbd {
   }
 
   .zoom-controls,
+  .search-controls,
   .pan-controls {
     padding-left: 0;
     border-left: 0;

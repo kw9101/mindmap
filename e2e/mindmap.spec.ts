@@ -232,6 +232,53 @@ test("pan controls display and nudge the workspace offset", async ({ page }) => 
   await expect(panOffset).toHaveText("X 0 Y 0");
 });
 
+test("node search highlights matches and jumps between nodes", async ({ page }) => {
+  const first = nodeInput(page, "right/0");
+  await first.fill("Alpha");
+  await first.press("Enter");
+  await nodeInput(page, "right/1").fill("Beta Alpha");
+
+  const search = page.getByLabel("Search nodes");
+  await search.fill("alpha");
+
+  await expect(page.getByLabel("Search result count")).toHaveText("1/2");
+  await expect(nodeInput(page, "right/0")).toHaveClass(/search-match/);
+  await expect(nodeInput(page, "right/1")).toHaveClass(/search-match/);
+
+  await search.press("Enter");
+
+  await expect(page.getByLabel("Search result count")).toHaveText("2/2");
+  await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/1")).toHaveAttribute("readonly", "");
+
+  await page.getByRole("button", { name: "Previous search match" }).click();
+
+  await expect(page.getByLabel("Search result count")).toHaveText("1/2");
+  await expect(nodeInput(page, "right/0")).toHaveClass(/selected/);
+});
+
+test("node search expands collapsed ancestors before selecting a match", async ({
+  page
+}) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+  await nodeInput(page, "right/0/0").fill("Hidden Alpha");
+  await nodeInput(page, "right/0/0").press("Escape");
+  await nodeInput(page, "right/0").focus();
+  await page.keyboard.press("Space");
+
+  await expect(nodeInput(page, "right/0/0")).toHaveCount(0);
+
+  const search = page.getByLabel("Search nodes");
+  await search.fill("hidden");
+  await search.press("Enter");
+
+  await expect(nodeInput(page, "right/0/0")).toBeVisible();
+  await expect(nodeInput(page, "right/0/0")).toHaveClass(/selected/);
+  await expect(page.getByLabel("Search result count")).toHaveText("1/1");
+});
+
 test("node action buttons are not shown inline", async ({ page }) => {
   await expect(page.getByRole("button", { exact: true, name: "Add child node" })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Add sibling node" })).toHaveCount(0);

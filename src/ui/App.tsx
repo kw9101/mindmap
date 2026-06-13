@@ -112,6 +112,10 @@ type ConnectorPath = {
   d: string;
 };
 
+type SearchMatch = {
+  path: string;
+};
+
 type KeyboardShortcutGroup = {
   title: string;
   shortcuts: { keys: string; action: string }[];
@@ -220,6 +224,8 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [diffFiles, setDiffFiles] = useState<DiffFiles | null>(null);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCursor, setSearchCursor] = useState(0);
   const [isPanning, setIsPanning] = useState(false);
   const [isNodeDragging, setIsNodeDragging] = useState(false);
   const [nodeDropTarget, setNodeDropTarget] = useState<NodeDropTarget | null>(null);
@@ -268,6 +274,20 @@ export function App() {
     () => (mindmap ? cloneNodesForPaths(mindmap, selectedClipboardPaths) : []),
     [mindmap, selectedClipboardPaths]
   );
+  const searchMatches = useMemo(
+    () => (mindmap ? searchNodePaths(mindmap, searchQuery) : []),
+    [mindmap, searchQuery]
+  );
+  const searchMatchPaths = useMemo(
+    () => new Set(searchMatches.map((match) => match.path)),
+    [searchMatches]
+  );
+  const currentSearchIndex =
+    searchMatches.length === 0 ? -1 : Math.min(searchCursor, searchMatches.length - 1);
+  const currentSearchPath =
+    currentSearchIndex === -1 ? null : searchMatches[currentSearchIndex]?.path ?? null;
+  const searchStatusText =
+    searchMatches.length === 0 ? "0/0" : `${currentSearchIndex + 1}/${searchMatches.length}`;
   const selectedDocumentNode =
     mindmap && !isRootNodePath(viewState.selectedNodePath)
       ? findNode(mindmap, viewState.selectedNodePath)
@@ -334,6 +354,54 @@ export function App() {
       editingNodePath: editing ? path : null
     }));
   }, []);
+
+  useEffect(() => {
+    setSearchCursor((current) =>
+      searchMatches.length === 0 ? 0 : Math.min(current, searchMatches.length - 1)
+    );
+  }, [searchMatches.length]);
+
+  const focusSearchMatchAtIndex = useCallback(
+    (index: number) => {
+      const match = searchMatches[index];
+      if (!match) {
+        return;
+      }
+
+      setSearchCursor(index);
+      setViewState((current) => ({
+        ...current,
+        selectedNodePath: match.path,
+        selectedNodePaths: [match.path],
+        selectionAnchorPath: match.path,
+        editingNodePath: null,
+        collapsedNodePaths: current.collapsedNodePaths.filter(
+          (path) => !isDescendantPath(match.path, path)
+        )
+      }));
+      focusNodeElementOnNextFrame(match.path);
+    },
+    [searchMatches]
+  );
+
+  const focusSearchMatch = useCallback(
+    (direction: "next" | "previous") => {
+      if (searchMatches.length === 0) {
+        return;
+      }
+
+      const nextIndex =
+        currentSearchIndex === -1
+          ? direction === "next"
+            ? 0
+            : searchMatches.length - 1
+          : direction === "next"
+            ? (currentSearchIndex + 1) % searchMatches.length
+            : (currentSearchIndex - 1 + searchMatches.length) % searchMatches.length;
+      focusSearchMatchAtIndex(nextIndex);
+    },
+    [currentSearchIndex, focusSearchMatchAtIndex, searchMatches.length]
+  );
 
   const selectNodeRange = useCallback(
     (path: string) => {
@@ -1428,6 +1496,8 @@ export function App() {
       selectedPath={viewState.selectedNodePath}
       selectedPaths={selectedNodePaths}
       editingPath={viewState.editingNodePath}
+      searchMatchPaths={searchMatchPaths}
+      currentSearchPath={currentSearchPath}
       collapsedPaths={collapsedPathSet}
       dragSourcePath={isNodeDragging ? nodeDragRef.current?.sourcePath ?? null : null}
       dropTarget={nodeDropTarget}
@@ -1560,6 +1630,50 @@ export function App() {
           >
             Paste
           </button>
+          <div className="search-controls" role="search" aria-label="Node search">
+            <input
+              type="search"
+              className="search-input"
+              aria-label="Search nodes"
+              placeholder="Search"
+              value={searchQuery}
+              disabled={!mindmap}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setSearchCursor(0);
+              }}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  focusSearchMatch(event.shiftKey ? "previous" : "next");
+                } else if (event.key === "Escape") {
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Previous search match"
+              title="Previous search match"
+              disabled={searchMatches.length === 0}
+              onClick={() => focusSearchMatch("previous")}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              aria-label="Next search match"
+              title="Next search match"
+              disabled={searchMatches.length === 0}
+              onClick={() => focusSearchMatch("next")}
+            >
+              ↓
+            </button>
+            <output className="search-count" aria-label="Search result count">
+              {searchStatusText}
+            </output>
+          </div>
           <button
             type="button"
             aria-label="Keyboard shortcuts"
@@ -1757,6 +1871,8 @@ export function App() {
                   className={classNames(
                     viewState.selectedNodePath === rootNodePath && "selected",
                     rootEditing && "editing",
+                    searchMatchPaths.has(rootNodePath) && "search-match",
+                    currentSearchPath === rootNodePath && "current-search-match",
                     rootDropTarget && `drop-${rootDropTarget.position}`,
                     rootDropTarget?.rootDirection && `drop-${rootDropTarget.rootDirection}`
                   )}
@@ -2056,6 +2172,8 @@ function NodeEditor({
   selectedPath,
   selectedPaths,
   editingPath,
+  searchMatchPaths,
+  currentSearchPath,
   collapsedPaths,
   dragSourcePath,
   dropTarget,
@@ -2084,6 +2202,8 @@ function NodeEditor({
   selectedPath: string;
   selectedPaths: string[];
   editingPath: string | null;
+  searchMatchPaths: Set<string>;
+  currentSearchPath: string | null;
   collapsedPaths: Set<string>;
   dragSourcePath: string | null;
   dropTarget: NodeDropTarget | null;
@@ -2127,6 +2247,8 @@ function NodeEditor({
             selectedPath={selectedPath}
             selectedPaths={selectedPaths}
             editingPath={editingPath}
+            searchMatchPaths={searchMatchPaths}
+            currentSearchPath={currentSearchPath}
             collapsedPaths={collapsedPaths}
             dragSourcePath={dragSourcePath}
             dropTarget={dropTarget}
@@ -2171,6 +2293,8 @@ function NodeEditor({
             selected && "selected",
             selected && !primarySelected && "secondary-selected",
             editing && "editing",
+            searchMatchPaths.has(node.path) && "search-match",
+            currentSearchPath === node.path && "current-search-match",
             !editing && "draggable-node",
             dragSourcePath === node.path && "drag-source",
             dropTarget?.targetPath === node.path && `drop-${dropTarget.position}`
@@ -2621,6 +2745,39 @@ function collapsedPathsForMindmap(mindmap: Mindmap | null, paths: string[]): str
       return node !== null && node.children.length > 0;
     })
   );
+}
+
+function searchNodePaths(mindmap: Mindmap, query: string): SearchMatch[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const matches: SearchMatch[] = [];
+  if (mindmap.title.toLocaleLowerCase().includes(normalizedQuery)) {
+    matches.push({ path: rootNodePath });
+  }
+
+  for (const node of flattenNodes(mindmap)) {
+    if (node.text.toLocaleLowerCase().includes(normalizedQuery)) {
+      matches.push({ path: node.path });
+    }
+  }
+
+  return matches;
+}
+
+function isDescendantPath(path: string, ancestorPath: string): boolean {
+  return path.startsWith(`${ancestorPath}/`);
+}
+
+function focusNodeElementOnNextFrame(path: string): void {
+  window.requestAnimationFrame(() => {
+    const element = globalThis.document?.querySelector<HTMLElement>(
+      `[data-node-path="${CSS.escape(path)}"]`
+    );
+    element?.focus();
+  });
 }
 
 function orderSelectionPaths(mindmap: Mindmap, paths: string[]): string[] {
