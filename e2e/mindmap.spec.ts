@@ -20,6 +20,54 @@ test("initial document renders virtual start nodes", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("#\n");
 });
 
+test("new starts a fresh untitled mindmap", async ({ page }) => {
+  await virtualRightRootInput(page).press("Enter");
+  await nodeInput(page, "right/0").fill("Draft");
+
+  page.once("dialog", (dialog) => {
+    void dialog.accept();
+  });
+  await page.getByRole("button", { name: "New" }).click();
+
+  await expect(page.locator(".file-name")).toHaveText("untitled.md");
+  await expect(page.locator(".node-input")).toHaveCount(0);
+  await expect(virtualRightRootInput(page)).toBeVisible();
+  await expect(virtualLeftRootInput(page)).toBeVisible();
+  await expect(markdownOutput(page)).toHaveText("#\n");
+});
+
+test("recent files remembers opened markdown and can reopen it", async ({
+  page
+}) => {
+  await mockTauriMarkdownFiles(
+    page,
+    { "/tmp/alpha.md": "# Alpha\n\n- One\n" },
+    "/tmp/alpha.md"
+  );
+
+  await page.getByRole("button", { name: "Open" }).click();
+
+  await expect(page.locator(".file-name")).toHaveText("alpha.md");
+  await expect(nodeInput(page, "right/0")).toHaveValue("One");
+
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(page.locator(".file-name")).toHaveText("untitled.md");
+
+  await openRecentFiles(page);
+  await expect(page.getByText("/tmp/alpha.md")).toBeVisible();
+
+  await page.getByRole("button", { name: "Open alpha.md" }).click();
+
+  await expect(page.locator(".file-name")).toHaveText("alpha.md");
+  await expect(nodeInput(page, "right/0")).toHaveValue("One");
+
+  await openRecentFiles(page);
+  await page
+    .getByRole("button", { name: "Remove alpha.md from recent files" })
+    .click();
+  await expect(page.getByText("최근 파일이 없습니다.")).toBeVisible();
+});
+
 test("layout overview mirrors the visible mindmap", async ({ page }) => {
   await expect(page.locator(".layout-overview")).toBeVisible();
   await expect(page.locator(".layout-overview-node")).toHaveCount(3);
@@ -722,6 +770,36 @@ test("selection and editing modes have distinct visual states", async ({ page })
   await expect(node).toHaveClass(/editing/);
 });
 
+test("selection mode renders inline markdown while editing keeps raw text", async ({
+  page
+}) => {
+  const node = nodeInput(page, "right/0");
+  const raw =
+    "**Bold** `code` [site](https://example.com) ~~gone~~ <b>raw</b> [bad](javascript:alert(1))";
+
+  await node.fill(raw);
+  await node.press("Escape");
+
+  const preview = nodeMarkdownPreview(page, "right/0");
+  await expect(preview).toBeVisible();
+  await expect(preview.locator("strong")).toHaveText("Bold");
+  await expect(preview.locator("code")).toHaveText("code");
+  await expect(preview.locator("del")).toHaveText("gone");
+  await expect(preview).toContainText("<b>raw</b>");
+
+  const link = preview.getByRole("link", { name: "site" });
+  await expect(link).toHaveAttribute("href", "https://example.com/");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", /noopener/);
+  await expect(preview.getByRole("link", { name: "bad" })).toHaveCount(0);
+
+  await node.press("Enter");
+
+  await expect(node).not.toHaveAttribute("readonly", "");
+  await expect(node).toHaveValue(raw);
+  await expect(nodeMarkdownPreview(page, "right/0")).toHaveCount(0);
+});
+
 test("node levels have distinct visual styles", async ({ page }) => {
   const level1 = nodeInput(page, "right/0");
   await level1.fill("Level 1");
@@ -749,16 +827,26 @@ test("node levels have distinct visual styles", async ({ page }) => {
     [level1, level2, level3, level4].map(async (node) => ({
       backgroundImage: await elementBackgroundImage(node),
       backgroundColor: await elementBackgroundColor(node),
-      borderColor: await elementBorderColor(node),
-      color: await elementColor(node),
-      fontWeight: await elementFontWeight(node)
+      borderColor: await elementBorderColor(node)
     }))
   );
   expect(styles.every(({ backgroundImage }) => backgroundImage === "none")).toBe(true);
   expect(new Set(styles.map(({ backgroundColor }) => backgroundColor)).size).toBe(4);
   expect(new Set(styles.map(({ borderColor }) => borderColor)).size).toBe(4);
-  expect(new Set(styles.map(({ color }) => color)).size).toBe(4);
-  expect(new Set(styles.map(({ fontWeight }) => fontWeight)).size).toBe(4);
+
+  const previewStyles = await Promise.all(
+    ["right/0", "right/0/0", "right/0/0/0", "right/0/0/0/0"].map(
+      async (path) => {
+        const preview = nodeMarkdownPreview(page, path);
+        return {
+          color: await elementColor(preview),
+          fontWeight: await elementFontWeight(preview)
+        };
+      }
+    )
+  );
+  expect(new Set(previewStyles.map(({ color }) => color)).size).toBe(4);
+  expect(new Set(previewStyles.map(({ fontWeight }) => fontWeight)).size).toBe(4);
 
   const markdownLineColors = await page.evaluate(() =>
     ["1", "2", "3", "deep"].map((level) => {
@@ -1995,6 +2083,14 @@ async function openMoreActions(page: Page): Promise<void> {
   }
 }
 
+async function openRecentFiles(page: Page): Promise<void> {
+  const recentMenu = page.locator(".recent-menu");
+  const isOpen = await recentMenu.evaluate((element) => element.hasAttribute("open"));
+  if (!isOpen) {
+    await page.getByRole("button", { name: "Recent files" }).click();
+  }
+}
+
 async function mockTauriOpenMarkdown(page: Page, contents: string): Promise<void> {
   await page.addInitScript((source) => {
     let callbackId = 0;
@@ -2053,15 +2149,105 @@ async function mockTauriOpenMarkdown(page: Page, contents: string): Promise<void
   await expect(page.getByText("clean")).toBeVisible();
 }
 
+async function mockTauriMarkdownFiles(
+  page: Page,
+  files: Record<string, string>,
+  openPath: string
+): Promise<void> {
+  await page.addInitScript(
+    ({ sourceByPath, selectedPath }) => {
+      let callbackId = 0;
+      const callbacks = new Map<number, unknown>();
+      const snapshots = Object.fromEntries(
+        Object.entries(sourceByPath).map(([path, contents], index) => [
+          path,
+          {
+            path,
+            name: path.split(/[\\/]/).pop() ?? path,
+            contents,
+            hash: `mock-hash-${index}-${contents.length}`,
+            mtimeMs: index + 1,
+            size: contents.length
+          }
+        ])
+      );
+
+      window.__TAURI_INTERNALS__ = {
+        transformCallback(callback: unknown) {
+          callbackId += 1;
+          callbacks.set(callbackId, callback);
+          return callbackId;
+        },
+        unregisterCallback(id: number) {
+          callbacks.delete(id);
+        },
+        async invoke(command: string, args?: Record<string, string>) {
+          if (command === "plugin:dialog|open") {
+            return selectedPath;
+          }
+
+          if (command === "read_markdown_file") {
+            const snapshot = snapshots[args?.path ?? ""];
+            if (!snapshot) {
+              throw new Error("file not found");
+            }
+
+            return snapshot;
+          }
+
+          if (command === "read_markdown_metadata") {
+            const snapshot = snapshots[args?.path ?? ""];
+            if (!snapshot) {
+              throw new Error("file not found");
+            }
+
+            const { contents: _contents, ...metadata } = snapshot;
+            return metadata;
+          }
+
+          if (
+            command === "read_app_state" ||
+            command === "write_app_state" ||
+            command === "watch_markdown_file" ||
+            command === "unwatch_markdown_file"
+          ) {
+            return null;
+          }
+
+          if (command === "plugin:event|listen") {
+            return "mock-event-listener";
+          }
+
+          return null;
+        }
+      };
+      window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+        unregisterListener() {
+          return undefined;
+        }
+      };
+    },
+    { sourceByPath: files, selectedPath: openPath }
+  );
+  await page.reload();
+  await expect(page.getByText("clean")).toBeVisible();
+}
+
 async function nodeActionOpacity(page: Page, path: string) {
   return nodeInput(page, path).evaluate((element) => {
-    const actions = element.parentElement?.querySelector<HTMLElement>(".node-actions");
+    const actions = element
+      .closest(".node-row")
+      ?.querySelector<HTMLElement>(".node-actions");
     return actions ? getComputedStyle(actions).opacity : null;
   });
 }
 
 function nodeByPath(page: Page, path: string) {
   return page.locator(`[data-node-path="${path}"]`);
+}
+
+function nodeMarkdownPreview(page: Page, path: string) {
+  return page.locator(`.node-markdown-preview[data-node-preview-path="${path}"]`);
 }
 
 async function startComposition(locator: Locator): Promise<void> {

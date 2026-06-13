@@ -10,7 +10,7 @@ export default defineConfig({
     strictPort: true
   },
   test: {
-    include: ["src/**/*.test.ts"]
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"]
   },
   envPrefix: ["VITE_", "TAURI_"]
 });

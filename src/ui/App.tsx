@@ -89,6 +89,14 @@ import {
   zoomOut
 } from "../core/viewState";
 import {
+  parseRecentFiles,
+  recentFilesStorageKey,
+  rememberRecentFile,
+  removeRecentFile,
+  serializeRecentFiles,
+  type RecentFile
+} from "../core/recentFiles";
+import {
   isNativeAvailable,
   listenMarkdownFileChanged,
   openExternalDiff,
@@ -104,6 +112,7 @@ import {
   writeMarkdownFileAtomic,
   type DiffFiles
 } from "../platform/native";
+import { InlineMarkdownPreview } from "./inlineMarkdown";
 import { getNodeEditingShortcut, isImeComposing } from "./keyboard";
 import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
@@ -271,6 +280,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
   {
     title: "문서/보기",
     shortcuts: [
+      { keys: "Cmd/Ctrl+N", action: "새 마인드맵" },
       { keys: "Cmd/Ctrl+O", action: "Markdown 파일 열기" },
       { keys: "Cmd/Ctrl+S", action: "저장" },
       { keys: "Cmd/Ctrl+Z", action: "Undo" },
@@ -303,6 +313,9 @@ export function App() {
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() =>
+    readRecentFilesFromStorage()
+  );
   const [isPanning, setIsPanning] = useState(false);
   const [isNodeDragging, setIsNodeDragging] = useState(false);
   const [nodeDropTarget, setNodeDropTarget] = useState<NodeDropTarget | null>(null);
@@ -454,6 +467,53 @@ export function App() {
       focusNodeElementOnNextFrame(path);
     },
     [selectNode]
+  );
+
+  const persistRecentFiles = useCallback(
+    (updater: (files: RecentFile[]) => RecentFile[]) => {
+      setRecentFiles((current) => {
+        const next = updater(current);
+        writeRecentFilesToStorage(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const rememberFileSnapshot = useCallback(
+    (snapshot: Pick<FileSnapshot, "path" | "name">) => {
+      persistRecentFiles((files) => rememberRecentFile(files, snapshot));
+    },
+    [persistRecentFiles]
+  );
+
+  const forgetRecentPath = useCallback(
+    (path: string) => {
+      persistRecentFiles((files) => removeRecentFile(files, path));
+    },
+    [persistRecentFiles]
+  );
+
+  const openSnapshotDocument = useCallback(
+    async (snapshot: FileSnapshot) => {
+      const nextDocument = openDocument(snapshot);
+      setHistory(createHistory(nextDocument, `Open ${snapshot.name}`));
+      setDiffFiles(null);
+      setSearchQuery("");
+      setSearchCursor(0);
+      setNotice(`열림: ${snapshot.name}`);
+      rememberFileSnapshot(snapshot);
+
+      const openedResult = parseMindmap(snapshot.contents);
+      const fallbackPath = openedResult.ok
+        ? selectablePathForMindmap(openedResult.mindmap)
+        : "";
+      const storedViewState = await readAppState(snapshot.path, viewStateKey).catch(
+        () => null
+      );
+      setViewState(parseViewState(storedViewState, fallbackPath));
+    },
+    [rememberFileSnapshot]
   );
 
   useEffect(() => {
@@ -706,6 +766,7 @@ export function App() {
           return replacePresent(current, nextDocument, `Saved ${snapshot.name}`);
         });
         setNotice(`저장됨: ${snapshot.name}`);
+        rememberFileSnapshot(snapshot);
       } catch (error) {
         setHistory((current) =>
           replacePresent(
@@ -716,12 +777,29 @@ export function App() {
         );
       }
     },
-    [activeDocument, replaceDocument]
+    [activeDocument, rememberFileSnapshot, replaceDocument]
   );
+
+  const handleNew = useCallback(() => {
+    if (!confirmDiscardDirtyDocument(activeDocument)) {
+      return;
+    }
+
+    setHistory(createHistory(createUntitledDocument(), "New mindmap"));
+    setViewState(createDefaultViewState());
+    setDiffFiles(null);
+    setSearchQuery("");
+    setSearchCursor(0);
+    setNotice("새 마인드맵을 시작했습니다.");
+  }, [activeDocument]);
 
   const handleOpen = useCallback(async () => {
     if (!nativeAvailable) {
       setNotice("파일 열기는 Tauri 데스크톱 실행에서 사용할 수 있습니다.");
+      return;
+    }
+
+    if (!confirmDiscardDirtyDocument(activeDocument)) {
       return;
     }
 
@@ -732,23 +810,40 @@ export function App() {
 
     try {
       const snapshot = await readMarkdownFile(path);
-      const nextDocument = openDocument(snapshot);
-      setHistory(createHistory(nextDocument, `Open ${snapshot.name}`));
-      setDiffFiles(null);
-      setNotice(`열림: ${snapshot.name}`);
-
-      const openedResult = parseMindmap(snapshot.contents);
-      const fallbackPath = openedResult.ok
-        ? selectablePathForMindmap(openedResult.mindmap)
-        : "";
-      const storedViewState = await readAppState(snapshot.path, viewStateKey).catch(
-        () => null
-      );
-      setViewState(parseViewState(storedViewState, fallbackPath));
+      await openSnapshotDocument(snapshot);
     } catch (error) {
       setNotice(`파일을 열 수 없습니다: ${errorMessage(error)}`);
     }
-  }, [nativeAvailable]);
+  }, [activeDocument, nativeAvailable, openSnapshotDocument]);
+
+  const handleOpenRecent = useCallback(
+    async (path: string) => {
+      if (!nativeAvailable) {
+        setNotice("최근 파일 열기는 Tauri 데스크톱 실행에서 사용할 수 있습니다.");
+        return;
+      }
+
+      if (!confirmDiscardDirtyDocument(activeDocument)) {
+        return;
+      }
+
+      try {
+        const snapshot = await readMarkdownFile(path);
+        await openSnapshotDocument(snapshot);
+      } catch (error) {
+        forgetRecentPath(path);
+        setNotice(
+          `최근 파일을 열 수 없습니다: ${errorMessage(error)}. 목록에서 제거했습니다.`
+        );
+      }
+    },
+    [
+      activeDocument,
+      forgetRecentPath,
+      nativeAvailable,
+      openSnapshotDocument
+    ]
+  );
 
   const handleSave = useCallback(async () => {
     if (!nativeAvailable) {
@@ -1452,6 +1547,14 @@ export function App() {
         run: () => focusSearchMatch("previous")
       },
       {
+        id: "new-mindmap",
+        title: "New mindmap",
+        detail: "새 마인드맵 시작",
+        shortcut: "Cmd/Ctrl+N",
+        keywords: ["file", "new", "새", "신규"],
+        run: handleNew
+      },
+      {
         id: "open-file",
         title: "Open file",
         detail: "Markdown 파일 열기",
@@ -1642,6 +1745,7 @@ export function App() {
       handleDeleteSelectedNodes,
       handleEditSelectedNode,
       handleNormalizeMarkdown,
+      handleNew,
       handleOpen,
       handlePasteSubtree,
       handleRedo,
@@ -2057,6 +2161,9 @@ export function App() {
       } else if ((event.metaKey || event.ctrlKey) && key === "f") {
         event.preventDefault();
         focusSearchInput();
+      } else if ((event.metaKey || event.ctrlKey) && key === "n") {
+        event.preventDefault();
+        handleNew();
       } else if ((event.metaKey || event.ctrlKey) && key === "s") {
         event.preventDefault();
         void handleSave();
@@ -2225,6 +2332,7 @@ export function App() {
     handleCopySubtree,
     handleCutSubtree,
     handleDeleteSelectedNodes,
+    handleNew,
     handleOpen,
     handlePasteSubtree,
     handleRedo,
@@ -2404,9 +2512,46 @@ export function App() {
           <div className={`status ${status.kind}`}>{status.text}</div>
         </div>
         <div className="toolbar">
+          <button type="button" onClick={handleNew}>
+            New
+          </button>
           <button type="button" onClick={handleOpen}>
             Open
           </button>
+          <details className="recent-menu">
+            <summary role="button" aria-label="Recent files" title="Recent files">
+              Recent
+            </summary>
+            <div className="recent-menu-panel" role="group" aria-label="Recent files menu">
+              {recentFiles.length === 0 ? (
+                <div className="recent-empty">최근 파일이 없습니다.</div>
+              ) : (
+                recentFiles.map((file) => (
+                  <div className="recent-file-row" key={file.path}>
+                    <button
+                      type="button"
+                      className="recent-file-open"
+                      aria-label={`Open ${file.name}`}
+                      title={file.path}
+                      onClick={() => void handleOpenRecent(file.path)}
+                    >
+                      <span className="recent-file-name">{file.name}</span>
+                      <span className="recent-file-path">{file.path}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="recent-file-remove"
+                      aria-label={`Remove ${file.name} from recent files`}
+                      title="Remove from recent files"
+                      onClick={() => forgetRecentPath(file.path)}
+                    >
+                      x
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </details>
           <button type="button" onClick={handleSave}>
             Save
           </button>
@@ -3162,6 +3307,11 @@ function NodeTextArea({
   const compositionFlushFrameRef = useRef<number | null>(null);
   const selectionSnapshotRef = useRef<TextSelectionSnapshot | null>(null);
   const [draftValue, setDraftValue] = useState(value);
+  const showMarkdownPreview = readOnly && value.length > 0;
+  const frameClassName = useMemo(
+    () => nodeTextFrameClassName(className),
+    [className]
+  );
 
   useEffect(() => {
     if (isComposingTextRef.current) {
@@ -3256,121 +3406,139 @@ function NodeTextArea({
   }, [draftValue, readOnly, width]);
 
   return (
-    <textarea
-      ref={textAreaRef}
-      className={className}
-      data-node-path={path}
-      value={draftValue}
-      rows={1}
-      wrap="soft"
-      style={{ width }}
-      aria-label={ariaLabel}
-      readOnly={readOnly}
-      onPointerDown={(event) => {
-        if (readOnly && (event.metaKey || event.ctrlKey || event.shiftKey)) {
-          event.preventDefault();
-          event.stopPropagation();
-          suppressClickRef.current = true;
-          if (event.shiftKey) {
-            onRangeSelect();
-          } else {
-            onToggleSelect();
-          }
-          return;
-        }
-
-        pointerStartRef.current = {
-          pointerId: event.pointerId,
-          x: event.clientX,
-          y: event.clientY
-        };
-        suppressClickRef.current = false;
-        onDragPointerDown?.(event);
-      }}
-      onPointerMove={(event) => {
-        const pointerStart = pointerStartRef.current;
-        if (pointerStart?.pointerId === event.pointerId) {
-          const deltaX = event.clientX - pointerStart.x;
-          const deltaY = event.clientY - pointerStart.y;
-          if (Math.hypot(deltaX, deltaY) > clickMoveTolerancePx) {
+    <span className={frameClassName} style={{ width }}>
+      <textarea
+        ref={textAreaRef}
+        className={classNames(className, showMarkdownPreview && "markdown-preview-active")}
+        data-node-path={path}
+        value={draftValue}
+        rows={1}
+        wrap="soft"
+        style={{ width: "100%" }}
+        aria-label={ariaLabel}
+        readOnly={readOnly}
+        onPointerDown={(event) => {
+          if (readOnly && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+            event.preventDefault();
+            event.stopPropagation();
             suppressClickRef.current = true;
+            if (event.shiftKey) {
+              onRangeSelect();
+            } else {
+              onToggleSelect();
+            }
+            return;
           }
-        }
 
-        onDragPointerMove?.(event);
-      }}
-      onPointerUp={(event) => {
-        onDragPointerUp?.(event);
-        pointerStartRef.current = null;
-      }}
-      onPointerCancel={(event) => {
-        onDragPointerCancel?.(event);
-        pointerStartRef.current = null;
-        suppressClickRef.current = true;
-      }}
-      onMouseDown={() => {
-        editOnClickRef.current = editOnClick;
-      }}
-      onClick={() => {
-        if (suppressClickRef.current) {
+          pointerStartRef.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY
+          };
           suppressClickRef.current = false;
+          onDragPointerDown?.(event);
+        }}
+        onPointerMove={(event) => {
+          const pointerStart = pointerStartRef.current;
+          if (pointerStart?.pointerId === event.pointerId) {
+            const deltaX = event.clientX - pointerStart.x;
+            const deltaY = event.clientY - pointerStart.y;
+            if (Math.hypot(deltaX, deltaY) > clickMoveTolerancePx) {
+              suppressClickRef.current = true;
+            }
+          }
+
+          onDragPointerMove?.(event);
+        }}
+        onPointerUp={(event) => {
+          onDragPointerUp?.(event);
+          pointerStartRef.current = null;
+        }}
+        onPointerCancel={(event) => {
+          onDragPointerCancel?.(event);
+          pointerStartRef.current = null;
+          suppressClickRef.current = true;
+        }}
+        onMouseDown={() => {
+          editOnClickRef.current = editOnClick;
+        }}
+        onClick={() => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            editOnClickRef.current = false;
+            return;
+          }
+
+          if (editOnClickRef.current) {
+            onEditClick();
+          }
           editOnClickRef.current = false;
-          return;
-        }
+        }}
+        onFocus={() => {
+          hasTextFocusRef.current = true;
+          onFocus();
+        }}
+        onChange={(event) => {
+          const nextValue = toSingleLineNodeText(event.target.value);
+          rememberSelection(event.currentTarget);
+          setDraftValue(nextValue);
+          if (isComposingTextRef.current) {
+            return;
+          }
 
-        if (editOnClickRef.current) {
-          onEditClick();
-        }
-        editOnClickRef.current = false;
-      }}
-      onFocus={() => {
-        hasTextFocusRef.current = true;
-        onFocus();
-      }}
-      onChange={(event) => {
-        const nextValue = toSingleLineNodeText(event.target.value);
-        rememberSelection(event.currentTarget);
-        setDraftValue(nextValue);
-        if (isComposingTextRef.current) {
-          return;
-        }
+          notifyTextChange(nextValue);
+        }}
+        onCompositionStart={(event) => {
+          if (compositionFlushFrameRef.current !== null) {
+            window.cancelAnimationFrame(compositionFlushFrameRef.current);
+            compositionFlushFrameRef.current = null;
+          }
 
-        notifyTextChange(nextValue);
-      }}
-      onCompositionStart={(event) => {
-        if (compositionFlushFrameRef.current !== null) {
-          window.cancelAnimationFrame(compositionFlushFrameRef.current);
-          compositionFlushFrameRef.current = null;
-        }
+          isComposingTextRef.current = true;
+          rememberSelection(event.currentTarget);
+          setDraftValue(toSingleLineNodeText(event.currentTarget.value));
+        }}
+        onCompositionEnd={() => {
+          isComposingTextRef.current = false;
+          scheduleCompositionFlush();
+        }}
+        onBlur={(event) => {
+          const hadPendingCompositionFlush = compositionFlushFrameRef.current !== null;
+          if (compositionFlushFrameRef.current !== null) {
+            window.cancelAnimationFrame(compositionFlushFrameRef.current);
+            compositionFlushFrameRef.current = null;
+          }
 
-        isComposingTextRef.current = true;
-        rememberSelection(event.currentTarget);
-        setDraftValue(toSingleLineNodeText(event.currentTarget.value));
-      }}
-      onCompositionEnd={() => {
-        isComposingTextRef.current = false;
-        scheduleCompositionFlush();
-      }}
-      onBlur={(event) => {
-        const hadPendingCompositionFlush = compositionFlushFrameRef.current !== null;
-        if (compositionFlushFrameRef.current !== null) {
-          window.cancelAnimationFrame(compositionFlushFrameRef.current);
-          compositionFlushFrameRef.current = null;
-        }
+          hasTextFocusRef.current = false;
+          if (isComposingTextRef.current || hadPendingCompositionFlush) {
+            flushTextValue(toSingleLineNodeText(event.currentTarget.value));
+          }
 
-        hasTextFocusRef.current = false;
-        if (isComposingTextRef.current || hadPendingCompositionFlush) {
-          flushTextValue(toSingleLineNodeText(event.currentTarget.value));
-        }
+          onBlur(
+            nodeTargetFromRelatedTarget(event),
+            toSingleLineNodeText(event.currentTarget.value)
+          );
+        }}
+        onSelect={(event) => rememberSelection(event.currentTarget)}
+        onKeyDown={onKeyDown}
+      />
+      {showMarkdownPreview && (
+        <InlineMarkdownPreview text={value} nodePath={path} />
+      )}
+    </span>
+  );
+}
 
-        onBlur(
-          nodeTargetFromRelatedTarget(event),
-          toSingleLineNodeText(event.currentTarget.value)
-        );
-      }}
-      onSelect={(event) => rememberSelection(event.currentTarget)}
-      onKeyDown={onKeyDown}
-    />
+function nodeTextFrameClassName(inputClassName: string): string {
+  const levelClass = inputClassName
+    .split(/\s+/u)
+    .find((part) => part.startsWith("node-level-"));
+
+  return classNames(
+    "node-text-frame",
+    inputClassName.includes("node-input") && "node-text-frame-node",
+    inputClassName.includes("virtual-node-input") && "node-text-frame-virtual",
+    levelClass
   );
 }
 
@@ -3947,6 +4115,38 @@ function documentsEqual(left: DocumentState, right: DocumentState): boolean {
     left.conflict?.disk.hash === right.conflict?.disk.hash &&
     left.externalError?.disk.hash === right.externalError?.disk.hash
   );
+}
+
+function readRecentFilesFromStorage(): RecentFile[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    return parseRecentFiles(window.localStorage.getItem(recentFilesStorageKey));
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentFilesToStorage(files: RecentFile[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(recentFilesStorageKey, serializeRecentFiles(files));
+  } catch {
+    // Recent files are a convenience cache; storage failures should not block editing.
+  }
+}
+
+function confirmDiscardDirtyDocument(documentState: DocumentState): boolean {
+  if (!documentState.dirty) {
+    return true;
+  }
+
+  return window.confirm("저장되지 않은 변경이 있습니다. 계속할까요?");
 }
 
 function statusLabel(

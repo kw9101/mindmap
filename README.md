@@ -32,6 +32,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 내용 없는 리프 노드의 임시 상태 시각 표시
 - 세션 내 undo/redo
 - Tauri command 기반 Markdown 파일 열기/원자적 저장
+- 새 마인드맵 시작과 최근 파일 메뉴
 - 지연 자동 저장
 - 외부 변경 file watcher + polling, clean 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리
 - 외부 diff 도구 실행용 임시 파일 생성 및 실행 명령
@@ -47,6 +48,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 마우스 드래그 기반 노드 재배치
 - 노드 hover 보조 핸들 기반 자식 추가, 형제 추가, 삭제
 - 노드 접기/펼치기와 큰 마인드맵용 가로 확장 레이아웃
+- 선택 모드 노드 인라인 Markdown 렌더링과 링크 열기
 - Tauri file watcher 장시간 stress test
 - 기능별 unit test
 - Playwright 기반 e2e user-flow test
@@ -103,6 +105,7 @@ pnpm tauri dev
 - 텍스트와 자식이 모두 없는 빈 노드는 반투명 점선으로 표시되고, 포커스를 잃으면 자동 삭제
 - 마우스 클릭: 노드 선택
 - 선택된 노드 다시 클릭 또는 선택 모드 `Enter`: 선택 노드 편집
+- 선택 모드 노드 링크 클릭: 안전한 외부 링크를 새 창/기본 브라우저로 열기
 - 노드 hover 핸들: 자식 추가, 다음 형제 추가, 삭제
 - 선택 모드 `Cmd/Ctrl+Click`: 노드 선택 토글
 - 선택 모드 `Shift+Click` 또는 `Shift+Arrow`: 기준 노드부터 대상 노드까지 범위 선택
@@ -131,7 +134,9 @@ pnpm tauri dev
 - `Cmd+Z`: undo
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
 - `Cmd+S`: 저장 또는 다른 이름 저장
+- `Cmd/Ctrl+N` 또는 `New`: 새 마인드맵 시작. 저장되지 않은 변경이 있으면 확인 후 진행
 - `Cmd+O`: Markdown 파일 열기
+- `Recent`: 최근 열거나 저장한 Markdown 파일 다시 열기
 - `Normalize`: CRLF, 마지막 개행, heading/blank trailing spaces, 빈 노드 marker 같은 명확한 파일 형식 문제를 명시적으로 정규화
 - `?` 또는 `Cmd/Ctrl+/`: 키바인딩 도움말
 
