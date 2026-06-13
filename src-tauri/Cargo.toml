@@ -22,3 +22,4 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
 tempfile = "3"
 notify = "6"
+arboard = "3"

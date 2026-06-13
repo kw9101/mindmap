@@ -17,6 +17,11 @@ export type MoveNodeResult = {
   movedPath: string;
 };
 
+export type MoveNodesResult = {
+  mindmap: Mindmap;
+  movedPaths: string[];
+};
+
 export function createInitialMindmap(): Mindmap {
   return normalizeMindmap({
     title: "",
@@ -97,6 +102,39 @@ export function deleteNode(mindmap: Mindmap, path: string): Mindmap {
   }
 
   location.siblings.splice(location.index, 1);
+  if (countNodes(next.children) === 0) {
+    return normalizeMindmap({
+      ...next,
+      children: [createNode("right", "")],
+      usesDirectionSections: false,
+      sectionOrder: [],
+      emptySections: []
+    });
+  }
+
+  return normalizeMindmap(next);
+}
+
+export function deleteNodes(mindmap: Mindmap, paths: string[]): Mindmap {
+  const selectedPaths = selectedTopLevelNodePaths(mindmap, paths);
+  if (selectedPaths.length === 0) {
+    return mindmap;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const selected = new Set(selectedPaths);
+  const deletionOrder = flattenNodes(mindmap)
+    .map((node) => node.path)
+    .filter((path) => selected.has(path))
+    .reverse();
+
+  for (const path of deletionOrder) {
+    const location = findNodeLocation(next, path);
+    if (location) {
+      location.siblings.splice(location.index, 1);
+    }
+  }
+
   if (countNodes(next.children) === 0) {
     return normalizeMindmap({
       ...next,
@@ -232,9 +270,68 @@ export function moveNodeByDirection(
       : null;
   }
 
+  if (location.parent === null) {
+    const rootDirection =
+      location.node.direction === "right" && direction === "left"
+        ? "left"
+        : location.node.direction === "left" && direction === "right"
+          ? "right"
+          : null;
+
+    return rootDirection
+      ? moveNodeTo(mindmap, path, rootNodePath, "inside", rootDirection)
+      : null;
+  }
+
   return location.parent
     ? moveNodeTo(mindmap, path, location.parent.path, "after")
     : null;
+}
+
+export function moveNodesByDirection(
+  mindmap: Mindmap,
+  paths: string[],
+  direction: NodeMoveDirection
+): MoveNodesResult | null {
+  const selectedPaths = selectedTopLevelNodePaths(mindmap, paths);
+  if (selectedPaths.length === 0) {
+    return null;
+  }
+
+  if (selectedPaths.length === 1) {
+    const result = moveNodeByDirection(mindmap, selectedPaths[0], direction);
+    return result
+      ? { mindmap: result.mindmap, movedPaths: [result.movedPath] }
+      : null;
+  }
+
+  const block = siblingBlock(mindmap, selectedPaths);
+  if (!block) {
+    return null;
+  }
+
+  if (direction === "up" || direction === "down") {
+    return moveSiblingBlockVertically(mindmap, block, direction);
+  }
+
+  const shouldIndent =
+    (block.direction === "right" && direction === "right") ||
+    (block.direction === "left" && direction === "left");
+  if (shouldIndent) {
+    return moveSiblingBlockInsidePrevious(mindmap, block);
+  }
+
+  if (block.parentPath === rootNodePath) {
+    const rootDirection =
+      block.direction === "right" && direction === "left"
+        ? "left"
+        : block.direction === "left" && direction === "right"
+          ? "right"
+          : null;
+    return rootDirection ? moveRootBlockToDirection(mindmap, block, rootDirection) : null;
+  }
+
+  return moveSiblingBlockAfterParent(mindmap, block);
 }
 
 export function moveNodeTo(
@@ -337,8 +434,32 @@ export function insertChildNodes(
   return normalizeMindmap(next);
 }
 
+export function cloneNodesForPaths(mindmap: Mindmap, paths: string[]): MindmapNode[] {
+  return selectedTopLevelNodePaths(mindmap, paths)
+    .map((path) => findNodeLocation(mindmap, path)?.node ?? null)
+    .filter((node): node is MindmapNode => node !== null)
+    .map(cloneNode);
+}
+
 export function findNode(mindmap: Mindmap, path: string): MindmapNode | null {
   return findNodeLocation(mindmap, path)?.node ?? null;
+}
+
+export function selectedTopLevelNodePaths(mindmap: Mindmap, paths: string[]): string[] {
+  const requested = new Set(paths.filter((path) => !isRootNodePath(path)));
+  const selected: string[] = [];
+
+  for (const node of flattenNodes(mindmap)) {
+    if (!requested.has(node.path)) {
+      continue;
+    }
+
+    if (!selected.some((path) => node.path.startsWith(`${path}/`))) {
+      selected.push(node.path);
+    }
+  }
+
+  return selected;
 }
 
 export function isRootNodePath(path: string): boolean {
@@ -597,6 +718,219 @@ function ensureDirectionOrder(order: Direction[], direction: Direction): Directi
   }
 
   return [...order, direction];
+}
+
+type SiblingBlock = {
+  paths: string[];
+  parentPath: string;
+  direction: Direction;
+  firstPath: string;
+  lastPath: string;
+  previousPath: string | null;
+  nextPath: string | null;
+};
+
+function siblingBlock(mindmap: Mindmap, paths: string[]): SiblingBlock | null {
+  const locations = paths
+    .map((path) => findNodeLocation(mindmap, path))
+    .filter((location): location is NodeLocation => location !== null);
+  if (locations.length !== paths.length) {
+    return null;
+  }
+
+  const parentPath = locations[0].parent?.path ?? rootNodePath;
+  const direction = locations[0].node.direction;
+  if (
+    locations.some(
+      (location) =>
+        (location.parent?.path ?? rootNodePath) !== parentPath ||
+        location.node.direction !== direction
+    )
+  ) {
+    return null;
+  }
+
+  const selected = new Set(paths);
+  const logicalSiblings =
+    parentPath === rootNodePath
+      ? locations[0].siblings.filter((node) => node.direction === direction)
+      : locations[0].siblings;
+  const selectedIndexes = logicalSiblings
+    .map((node, index) => (selected.has(node.path) ? index : -1))
+    .filter((index) => index >= 0);
+  if (selectedIndexes.length !== paths.length) {
+    return null;
+  }
+
+  const firstIndex = Math.min(...selectedIndexes);
+  const lastIndex = Math.max(...selectedIndexes);
+  if (lastIndex - firstIndex + 1 !== selectedIndexes.length) {
+    return null;
+  }
+
+  return {
+    paths: logicalSiblings.slice(firstIndex, lastIndex + 1).map((node) => node.path),
+    parentPath,
+    direction,
+    firstPath: logicalSiblings[firstIndex].path,
+    lastPath: logicalSiblings[lastIndex].path,
+    previousPath: logicalSiblings[firstIndex - 1]?.path ?? null,
+    nextPath: logicalSiblings[lastIndex + 1]?.path ?? null
+  };
+}
+
+function moveSiblingBlockVertically(
+  mindmap: Mindmap,
+  block: SiblingBlock,
+  direction: "up" | "down"
+): MoveNodesResult | null {
+  const targetPath = direction === "up" ? block.previousPath : block.nextPath;
+  if (!targetPath) {
+    return null;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const blockLocations = block.paths
+    .map((path) => findNodeLocation(next, path))
+    .filter((location): location is NodeLocation => location !== null);
+  const targetLocation = findNodeLocation(next, targetPath);
+  if (!targetLocation || blockLocations.length !== block.paths.length) {
+    return null;
+  }
+
+  const siblings = blockLocations[0].siblings;
+  if (blockLocations.some((location) => location.siblings !== siblings)) {
+    return null;
+  }
+
+  const movingNodes = blockLocations
+    .sort((left, right) => right.index - left.index)
+    .map((location) => location.siblings.splice(location.index, 1)[0])
+    .reverse();
+  const targetIndex = siblings.indexOf(targetLocation.node);
+  if (targetIndex === -1) {
+    return null;
+  }
+
+  const insertIndex = direction === "up" ? targetIndex : targetIndex + 1;
+  siblings.splice(insertIndex, 0, ...movingNodes);
+  return moveNodesResult(next, movingNodes);
+}
+
+function moveSiblingBlockInsidePrevious(
+  mindmap: Mindmap,
+  block: SiblingBlock
+): MoveNodesResult | null {
+  if (!block.previousPath) {
+    return null;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const previousLocation = findNodeLocation(next, block.previousPath);
+  const blockLocations = block.paths
+    .map((path) => findNodeLocation(next, path))
+    .filter((location): location is NodeLocation => location !== null);
+  if (!previousLocation || blockLocations.length !== block.paths.length) {
+    return null;
+  }
+
+  const siblings = blockLocations[0].siblings;
+  if (blockLocations.some((location) => location.siblings !== siblings)) {
+    return null;
+  }
+
+  const movingNodes = blockLocations
+    .sort((left, right) => right.index - left.index)
+    .map((location) => location.siblings.splice(location.index, 1)[0])
+    .reverse();
+  for (const node of movingNodes) {
+    setSubtreeDirection(node, previousLocation.node.direction);
+  }
+
+  previousLocation.node.children.push(...movingNodes);
+  return moveNodesResult(next, movingNodes);
+}
+
+function moveSiblingBlockAfterParent(
+  mindmap: Mindmap,
+  block: SiblingBlock
+): MoveNodesResult | null {
+  if (block.parentPath === rootNodePath) {
+    return null;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const parentLocation = findNodeLocation(next, block.parentPath);
+  const blockLocations = block.paths
+    .map((path) => findNodeLocation(next, path))
+    .filter((location): location is NodeLocation => location !== null);
+  if (!parentLocation || blockLocations.length !== block.paths.length) {
+    return null;
+  }
+
+  const siblings = blockLocations[0].siblings;
+  if (blockLocations.some((location) => location.siblings !== siblings)) {
+    return null;
+  }
+
+  const movingNodes = blockLocations
+    .sort((left, right) => right.index - left.index)
+    .map((location) => location.siblings.splice(location.index, 1)[0])
+    .reverse();
+  for (const node of movingNodes) {
+    setSubtreeDirection(node, parentLocation.node.direction);
+  }
+
+  parentLocation.siblings.splice(parentLocation.index + 1, 0, ...movingNodes);
+  return moveNodesResult(next, movingNodes);
+}
+
+function moveRootBlockToDirection(
+  mindmap: Mindmap,
+  block: SiblingBlock,
+  direction: Direction
+): MoveNodesResult | null {
+  if (block.parentPath !== rootNodePath) {
+    return null;
+  }
+
+  const next = cloneMindmap(mindmap);
+  const blockLocations = block.paths
+    .map((path) => findNodeLocation(next, path))
+    .filter((location): location is NodeLocation => location !== null);
+  if (blockLocations.length !== block.paths.length) {
+    return null;
+  }
+
+  const movingNodes = blockLocations
+    .sort((left, right) => right.index - left.index)
+    .map((location) => location.siblings.splice(location.index, 1)[0])
+    .reverse();
+  for (const node of movingNodes) {
+    setSubtreeDirection(node, direction);
+  }
+
+  next.children.push(...movingNodes);
+  if (direction === "left" || next.usesDirectionSections) {
+    next.usesDirectionSections = true;
+    next.sectionOrder = ensureDirectionOrder(next.sectionOrder, direction);
+    if (!next.sectionOrder.includes("right")) {
+      next.sectionOrder = ["right", ...next.sectionOrder];
+    }
+  }
+
+  return moveNodesResult(next, movingNodes);
+}
+
+function moveNodesResult(next: Mindmap, movingNodes: MindmapNode[]): MoveNodesResult | null {
+  const movedPaths = movingNodes
+    .map((node) => pathForNode(next, node))
+    .filter((path): path is string => path !== null);
+  if (movedPaths.length !== movingNodes.length) {
+    return null;
+  }
+
+  return { mindmap: normalizeMindmap(next), movedPaths };
 }
 
 function createNode(direction: Direction, text: string): MindmapNode {

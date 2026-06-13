@@ -8,15 +8,30 @@ export function serializeMindmap(mindmap: Mindmap): string {
       mindmap.sectionOrder.length > 0
         ? mindmap.sectionOrder
         : (["right", "left"] satisfies Direction[]);
+    const rootsByDirection = Object.fromEntries(
+      order.map((direction) => [
+        direction,
+        mindmap.children.filter((node) => node.direction === direction)
+      ])
+    ) as Record<Direction, MindmapNode[]>;
+    const lastNonEmptyIndex = Math.max(
+      0,
+      ...order
+        .map((direction, index) =>
+          rootsByDirection[direction].length > 0 ? index : -1
+        )
+        .filter((index) => index >= 0)
+    );
+    const serializableOrder = order.slice(0, lastNonEmptyIndex + 1);
 
-    for (const direction of order) {
+    for (const direction of serializableOrder) {
       lines.push(`## ${capitalize(direction)}`, "");
-      const roots = mindmap.children.filter((node) => node.direction === direction);
+      const roots = rootsByDirection[direction];
       for (const root of roots) {
         writeNode(lines, root, 0);
       }
 
-      if (direction !== order[order.length - 1]) {
+      if (direction !== serializableOrder[serializableOrder.length - 1]) {
         lines.push("");
       }
     }

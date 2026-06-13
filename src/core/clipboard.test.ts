@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseMindmap } from "./parser";
-import { parseClipboardNodes, serializeNodeForClipboard } from "./clipboard";
+import {
+  parseClipboardNodes,
+  serializeNodeForClipboard,
+  serializeNodesForClipboard
+} from "./clipboard";
 
 function firstNode(source: string) {
   const result = parseMindmap(source);
@@ -21,6 +25,24 @@ describe("clipboard", () => {
 
     expect(serializeNodeForClipboard(node)).toBe(`- A
   - B
+`);
+  });
+
+  it("serializes multiple subtrees as one markdown list", () => {
+    const result = parseMindmap(`# Map
+
+- A
+- B
+  - B-1
+`);
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) {
+      throw new Error(result.diagnostics[0].message);
+    }
+
+    expect(serializeNodesForClipboard(result.mindmap.children)).toBe(`- A
+- B
+  - B-1
 `);
   });
 

@@ -36,7 +36,7 @@ import {
 } from "../core/history";
 import type { Diagnostic } from "../core/diagnostics";
 import type { Direction, Mindmap, MindmapNode } from "../core/model";
-import { parseClipboardNodes, serializeNodeForClipboard } from "../core/clipboard";
+import { parseClipboardNodes, serializeNodesForClipboard } from "../core/clipboard";
 import { parseMindmap } from "../core/parser";
 import { serializeMindmap } from "../core/serializer";
 import {
@@ -44,18 +44,23 @@ import {
   addPreviousSiblingNode,
   addRootNode,
   addSiblingNode,
+  cloneNodesForPaths,
   deleteNode,
+  deleteNodes,
   findNode,
+  flattenNodes,
   firstNodePath,
   insertSiblingNodes,
   isRootNodePath,
   moveNodeByDirection,
+  moveNodesByDirection,
   moveNodeTo,
   nextSiblingNodePath,
   parentNodePath,
   previousNodePath,
   previousSiblingNodePath,
   rootNodePath,
+  selectedTopLevelNodePaths,
   type NodeMoveDirection,
   type NodeMovePosition,
   updateNodeText,
@@ -81,9 +86,11 @@ import {
   pickOpenMarkdownPath,
   pickSaveMarkdownPath,
   readAppState,
+  readClipboardText,
   readMarkdownFile,
   unwatchMarkdownFile,
   watchMarkdownFile,
+  writeClipboardText,
   writeAppState,
   writeMarkdownFileAtomic,
   type DiffFiles
@@ -167,12 +174,17 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
     shortcuts: [
       { keys: "ArrowUp/Down", action: "화면상 위/아래 노드 선택" },
       { keys: "ArrowLeft/Right", action: "화면상 왼쪽/오른쪽 노드 선택" },
+      { keys: "Shift+Arrow", action: "범위 선택 확장" },
       { keys: "Enter", action: "편집 시작" },
       { keys: "Tab", action: "첫 자식으로 이동 또는 생성" },
       { keys: "Shift+Tab", action: "부모 노드 선택" },
+      { keys: "Space", action: "자식 접기/펼치기" },
+      { keys: "Cmd/Ctrl+Click", action: "선택 추가/해제" },
+      { keys: "Shift+Click", action: "범위 선택" },
       { keys: "Cmd/Ctrl+Arrow", action: "노드를 해당 방향으로 이동" },
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
+      { keys: "Cmd/Ctrl+X", action: "선택 subtree 잘라내기" },
       { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
     ]
   },
@@ -232,6 +244,26 @@ export function App() {
   const nativeAvailable = isNativeAvailable();
   const fileName = activeDocument.file?.name ?? "untitled.md";
   const status = statusLabel(activeDocument, nativeAvailable);
+  const selectedNodePaths = useMemo(
+    () => selectionPathsForMindmap(mindmap, viewState),
+    [mindmap, viewState]
+  );
+  const collapsedNodePaths = useMemo(
+    () => collapsedPathsForMindmap(mindmap, viewState.collapsedNodePaths),
+    [mindmap, viewState.collapsedNodePaths]
+  );
+  const collapsedPathSet = useMemo(
+    () => new Set(collapsedNodePaths),
+    [collapsedNodePaths]
+  );
+  const selectedClipboardPaths = useMemo(
+    () => (mindmap ? selectedTopLevelNodePaths(mindmap, selectedNodePaths) : []),
+    [mindmap, selectedNodePaths]
+  );
+  const selectedClipboardNodes = useMemo(
+    () => (mindmap ? cloneNodesForPaths(mindmap, selectedClipboardPaths) : []),
+    [mindmap, selectedClipboardPaths]
+  );
   const selectedDocumentNode =
     mindmap && !isRootNodePath(viewState.selectedNodePath)
       ? findNode(mindmap, viewState.selectedNodePath)
@@ -280,6 +312,8 @@ export function App() {
         setViewState((current) => ({
           ...current,
           selectedNodePath: nextSelectedPath,
+          selectedNodePaths: nextSelectedPath ? [nextSelectedPath] : [],
+          selectionAnchorPath: nextSelectedPath || null,
           editingNodePath: editing && nextSelectedPath ? nextSelectedPath : null
         }));
       }
@@ -291,8 +325,108 @@ export function App() {
     setViewState((current) => ({
       ...current,
       selectedNodePath: path,
+      selectedNodePaths: path ? [path] : [],
+      selectionAnchorPath: path || null,
       editingNodePath: editing ? path : null
     }));
+  }, []);
+
+  const selectNodeRange = useCallback(
+    (path: string) => {
+      if (!mindmap || isRootNodePath(path)) {
+        selectNode(path, false);
+        return;
+      }
+
+      setViewState((current) => {
+        const anchor =
+          current.selectionAnchorPath &&
+          !isRootNodePath(current.selectionAnchorPath) &&
+          findNode(mindmap, current.selectionAnchorPath)
+            ? current.selectionAnchorPath
+            : current.selectedNodePath;
+        const range = rangeSelectionPaths(mindmap, collapsedPathSet, anchor, path);
+        return {
+          ...current,
+          selectedNodePath: path,
+          selectedNodePaths: range,
+          selectionAnchorPath: anchor,
+          editingNodePath: null
+        };
+      });
+    },
+    [collapsedPathSet, mindmap, selectNode]
+  );
+
+  const toggleNodeSelection = useCallback(
+    (path: string) => {
+      if (!mindmap || isRootNodePath(path)) {
+        selectNode(path, false);
+        return;
+      }
+
+      setViewState((current) => {
+        const currentSelection = selectionPathsForMindmap(mindmap, current).filter(
+          (item) => !isRootNodePath(item)
+        );
+        const selected = new Set(currentSelection);
+        if (selected.has(path) && selected.size > 1) {
+          selected.delete(path);
+        } else {
+          selected.add(path);
+        }
+
+        const nextSelection = orderSelectionPaths(mindmap, Array.from(selected));
+        const nextPrimary = selected.has(path) ? path : nextSelection[0] ?? path;
+        return {
+          ...current,
+          selectedNodePath: nextPrimary,
+          selectedNodePaths: nextSelection,
+          selectionAnchorPath: nextPrimary,
+          editingNodePath: null
+        };
+      });
+    },
+    [mindmap, selectNode]
+  );
+
+  const toggleCollapsedNode = useCallback(
+    (path: string) => {
+      if (!mindmap || isRootNodePath(path)) {
+        return;
+      }
+
+      const node = findNode(mindmap, path);
+      if (!node || node.children.length === 0) {
+        return;
+      }
+
+      setViewState((current) => {
+        const collapsed = new Set(current.collapsedNodePaths);
+        if (collapsed.has(path)) {
+          collapsed.delete(path);
+        } else {
+          collapsed.add(path);
+        }
+
+        return {
+          ...current,
+          collapsedNodePaths: orderSelectionPaths(mindmap, Array.from(collapsed))
+        };
+      });
+    },
+    [mindmap]
+  );
+
+  const expandNode = useCallback((path: string) => {
+    setViewState((current) =>
+      current.collapsedNodePaths.includes(path)
+        ? {
+            ...current,
+            collapsedNodePaths: current.collapsedNodePaths.filter((item) => item !== path)
+          }
+        : current
+    );
   }, []);
 
   const moveFocusedNode = useCallback(
@@ -312,12 +446,52 @@ export function App() {
     [commitMindmap, mindmap]
   );
 
+  const moveSelectedNodes = useCallback(
+    (direction: NodeMoveDirection) => {
+      if (!mindmap) {
+        return false;
+      }
+
+      const result =
+        selectedClipboardPaths.length > 1
+          ? moveNodesByDirection(mindmap, selectedClipboardPaths, direction)
+          : moveNodesByDirection(mindmap, [viewState.selectedNodePath], direction);
+      if (!result) {
+        return false;
+      }
+
+      const primaryIndex = selectedClipboardPaths.includes(viewState.selectedNodePath)
+        ? selectedClipboardPaths.indexOf(viewState.selectedNodePath)
+        : 0;
+      const nextPrimary =
+        result.movedPaths[Math.min(primaryIndex, result.movedPaths.length - 1)] ??
+        result.movedPaths[0];
+      commitMindmap(result.mindmap, "Move nodes", nextPrimary, false);
+      setViewState((current) => ({
+        ...current,
+        selectedNodePath: nextPrimary,
+        selectedNodePaths: result.movedPaths,
+        selectionAnchorPath: result.movedPaths[0] ?? nextPrimary,
+        editingNodePath: null
+      }));
+      return true;
+    },
+    [
+      commitMindmap,
+      mindmap,
+      selectedClipboardPaths,
+      viewState.selectedNodePath
+    ]
+  );
+
   const exitEditingIfCurrent = useCallback((path: string) => {
     setViewState((current) =>
       current.editingNodePath === path
         ? {
             ...current,
             selectedNodePath: path,
+            selectedNodePaths: path ? [path] : [],
+            selectionAnchorPath: path || null,
             editingNodePath: null
           }
         : current
@@ -663,17 +837,54 @@ export function App() {
   );
 
   const handleCopySubtree = useCallback(async () => {
-    if (!mindmap || !selectedDocumentNode) {
+    if (!mindmap || selectedClipboardNodes.length === 0) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(serializeNodeForClipboard(selectedDocumentNode));
-      setNotice("선택한 노드를 Markdown 목록으로 복사했습니다.");
+      await writeClipboardText(serializeNodesForClipboard(selectedClipboardNodes));
+      setNotice(
+        selectedClipboardNodes.length === 1
+          ? "선택한 노드를 Markdown 목록으로 복사했습니다."
+          : `선택한 노드 ${selectedClipboardNodes.length}개를 Markdown 목록으로 복사했습니다.`
+      );
     } catch (error) {
       setNotice(`클립보드에 쓸 수 없습니다: ${errorMessage(error)}`);
     }
-  }, [mindmap, selectedDocumentNode]);
+  }, [mindmap, selectedClipboardNodes]);
+
+  const handleCutSubtree = useCallback(async () => {
+    if (!mindmap || selectedClipboardNodes.length === 0) {
+      return;
+    }
+
+    try {
+      await writeClipboardText(serializeNodesForClipboard(selectedClipboardNodes));
+    } catch (error) {
+      setNotice(`클립보드에 쓸 수 없습니다: ${errorMessage(error)}`);
+      return;
+    }
+
+    const fallback = previousNodePath(mindmap, viewState.selectedNodePath);
+    const next = deleteNodes(mindmap, selectedClipboardPaths);
+    commitMindmap(
+      next,
+      "Cut nodes",
+      selectionPathAfterDelete(next, fallback),
+      false
+    );
+    setNotice(
+      selectedClipboardNodes.length === 1
+        ? "선택한 노드를 잘라냈습니다."
+        : `선택한 노드 ${selectedClipboardNodes.length}개를 잘라냈습니다.`
+    );
+  }, [
+    commitMindmap,
+    mindmap,
+    selectedClipboardNodes,
+    selectedClipboardPaths,
+    viewState.selectedNodePath
+  ]);
 
   const handlePasteSubtree = useCallback(async () => {
     if (!mindmap || !selectedDocumentNode) {
@@ -681,7 +892,7 @@ export function App() {
     }
 
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText();
       const parsed = parseClipboardNodes(text, selectedDocumentNode.direction);
       if (!parsed.ok) {
         setNotice(
@@ -700,6 +911,21 @@ export function App() {
       setNotice(`클립보드에서 읽을 수 없습니다: ${errorMessage(error)}`);
     }
   }, [commitMindmap, mindmap, selectedDocumentNode]);
+
+  const handleDeleteSelectedNodes = useCallback(() => {
+    if (!mindmap || selectedClipboardPaths.length === 0) {
+      return;
+    }
+
+    const fallback = previousNodePath(mindmap, viewState.selectedNodePath);
+    const next = deleteNodes(mindmap, selectedClipboardPaths);
+    commitMindmap(
+      next,
+      selectedClipboardPaths.length === 1 ? "Delete node" : "Delete nodes",
+      selectionPathAfterDelete(next, fallback),
+      false
+    );
+  }, [commitMindmap, mindmap, selectedClipboardPaths, viewState.selectedNodePath]);
 
   const handlePrepareDiff = useCallback(async () => {
     if (!activeDocument.file || !activeDocument.conflict) {
@@ -882,19 +1108,60 @@ export function App() {
       return;
     }
 
-    if (
+    const fallbackPath = firstNodePath(mindmap);
+    const validSelectedPaths = selectionPathsForMindmap(mindmap, viewState);
+    const selectedPathIsValid =
       isRootNodePath(viewState.selectedNodePath) ||
-      (viewState.selectedNodePath && findNode(mindmap, viewState.selectedNodePath))
+      (viewState.selectedNodePath && findNode(mindmap, viewState.selectedNodePath));
+    const nextSelectedPath = selectedPathIsValid
+      ? viewState.selectedNodePath
+      : validSelectedPaths[0] ?? fallbackPath;
+    const nextCollapsedPaths = collapsedPathsForMindmap(
+      mindmap,
+      viewState.collapsedNodePaths
+    );
+    const nextEditingPath =
+      viewState.editingNodePath &&
+      (isRootNodePath(viewState.editingNodePath) ||
+        findNode(mindmap, viewState.editingNodePath))
+        ? viewState.editingNodePath
+        : !viewState.selectedNodePath && nextSelectedPath
+          ? nextSelectedPath
+          : null;
+
+    if (
+      nextSelectedPath === viewState.selectedNodePath &&
+      sameStringList(validSelectedPaths, viewState.selectedNodePaths) &&
+      sameStringList(nextCollapsedPaths, viewState.collapsedNodePaths) &&
+      nextEditingPath === viewState.editingNodePath
     ) {
       return;
     }
 
     setViewState((current) => ({
       ...current,
-      selectedNodePath: firstNodePath(mindmap),
-      editingNodePath: firstNodePath(mindmap) || null
+      selectedNodePath: nextSelectedPath,
+      selectedNodePaths: validSelectedPaths.length > 0 ? validSelectedPaths : [nextSelectedPath],
+      selectionAnchorPath: validSelectedPaths.includes(current.selectionAnchorPath ?? "")
+        ? current.selectionAnchorPath
+        : nextSelectedPath || null,
+      editingNodePath:
+        current.editingNodePath &&
+        (isRootNodePath(current.editingNodePath) ||
+          findNode(mindmap, current.editingNodePath))
+          ? current.editingNodePath
+          : !current.selectedNodePath && nextSelectedPath
+            ? nextSelectedPath
+            : null,
+      collapsedNodePaths: nextCollapsedPaths
     }));
-  }, [mindmap, viewState.selectedNodePath]);
+  }, [
+    mindmap,
+    viewState.collapsedNodePaths,
+    viewState.editingNodePath,
+    viewState.selectedNodePath,
+    viewState.selectedNodePaths
+  ]);
 
   useEffect(() => {
     if (!viewState.editingNodePath) {
@@ -920,7 +1187,9 @@ export function App() {
         return;
       }
 
-      setConnectorPaths(buildConnectorPaths(workspace, mindmap, viewState.zoom));
+      setConnectorPaths(
+        buildConnectorPaths(workspace, mindmap, viewState.zoom, collapsedPathSet)
+      );
     };
 
     updateConnectors();
@@ -938,7 +1207,7 @@ export function App() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateConnectors);
     };
-  }, [mindmap, viewState.zoom]);
+  }, [collapsedPathSet, mindmap, viewState.zoom]);
 
   useEffect(() => {
     if (!showKeyboardHelp) {
@@ -1000,6 +1269,9 @@ export function App() {
       } else if (!editing && (event.metaKey || event.ctrlKey) && key === "c") {
         event.preventDefault();
         void handleCopySubtree();
+      } else if (!editing && (event.metaKey || event.ctrlKey) && key === "x") {
+        event.preventDefault();
+        void handleCutSubtree();
       } else if (!editing && (event.metaKey || event.ctrlKey) && key === "v") {
         event.preventDefault();
         void handlePasteSubtree();
@@ -1007,17 +1279,23 @@ export function App() {
         const moveDirection = modifiedArrowDirectionForEvent(event);
         if (moveDirection) {
           event.preventDefault();
-          moveFocusedNode(viewState.selectedNodePath, moveDirection, false);
+          moveSelectedNodes(moveDirection);
           return;
         }
 
         const spatialDirection = spatialDirectionForKey(event.key);
         if (spatialDirection) {
           event.preventDefault();
-          selectNode(
-            spatialNodePath(workspaceRef.current, viewState.selectedNodePath, spatialDirection),
-            false
+          const nextPath = spatialNodePath(
+            workspaceRef.current,
+            viewState.selectedNodePath,
+            spatialDirection
           );
+          if (event.shiftKey) {
+            selectNodeRange(nextPath);
+          } else {
+            selectNode(nextPath, false);
+          }
         } else if (
           event.key === "Tab" &&
           !event.metaKey &&
@@ -1043,6 +1321,7 @@ export function App() {
             viewState.selectedNodePath
           );
           if (childPath) {
+            expandNode(viewState.selectedNodePath);
             selectNode(childPath, false);
             return;
           }
@@ -1056,6 +1335,9 @@ export function App() {
         } else if (event.key === "Enter") {
           event.preventDefault();
           selectNode(viewState.selectedNodePath, true);
+        } else if (event.key === " ") {
+          event.preventDefault();
+          toggleCollapsedNode(viewState.selectedNodePath);
         } else if (event.key === "Backspace" || event.key === "Delete") {
           if (isRootNodePath(viewState.selectedNodePath)) {
             event.preventDefault();
@@ -1063,13 +1345,7 @@ export function App() {
           }
 
           event.preventDefault();
-          const fallback = previousNodePath(mindmap, viewState.selectedNodePath);
-          const next = deleteNode(mindmap, viewState.selectedNodePath);
-          commitMindmap(
-            next,
-            "Delete node",
-            findNode(next, fallback) ? fallback : firstNodePath(next)
-          );
+          handleDeleteSelectedNodes();
         }
       }
     };
@@ -1078,7 +1354,10 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     commitMindmap,
+    expandNode,
     handleCopySubtree,
+    handleCutSubtree,
+    handleDeleteSelectedNodes,
     handleOpen,
     handlePasteSubtree,
     handleRedo,
@@ -1089,8 +1368,11 @@ export function App() {
     handleZoomOut,
     mindmap,
     moveFocusedNode,
+    moveSelectedNodes,
     selectNode,
+    selectNodeRange,
     showKeyboardHelp,
+    toggleCollapsedNode,
     viewState.editingNodePath,
     viewState.selectedNodePath
   ]);
@@ -1111,10 +1393,14 @@ export function App() {
       node={node}
       side={side}
       selectedPath={viewState.selectedNodePath}
+      selectedPaths={selectedNodePaths}
       editingPath={viewState.editingNodePath}
+      collapsedPaths={collapsedPathSet}
       dragSourcePath={isNodeDragging ? nodeDragRef.current?.sourcePath ?? null : null}
       dropTarget={nodeDropTarget}
       onSelect={(path, editing) => selectNode(path, editing)}
+      onSelectRange={selectNodeRange}
+      onToggleSelect={toggleNodeSelection}
       onExitEditing={exitEditingIfCurrent}
       onTextChange={(path, text) => {
         commitMindmap(updateNodeText(mindmap!, path, text), "Edit node text", path);
@@ -1122,6 +1408,7 @@ export function App() {
       onFocusChildOrCreate={(path) => {
         const childPath = firstChildPathForExistingNode(mindmap!, path);
         if (childPath) {
+          expandNode(path);
           selectNode(childPath, true);
           return;
         }
@@ -1177,6 +1464,7 @@ export function App() {
       onMove={(path, direction) => {
         moveFocusedNode(path, direction, true);
       }}
+      onToggleCollapse={(path) => toggleCollapsedNode(path)}
       onDragPointerDown={handleNodeDragPointerDown}
       onDragPointerMove={handleNodeDragPointerMove}
       onDragPointerUp={handleNodeDragPointerUp}
@@ -1210,9 +1498,16 @@ export function App() {
           <button
             type="button"
             onClick={handleCopySubtree}
-            disabled={!mindmap || !selectedDocumentNode}
+            disabled={!mindmap || selectedClipboardNodes.length === 0}
           >
             Copy
+          </button>
+          <button
+            type="button"
+            onClick={handleCutSubtree}
+            disabled={!mindmap || selectedClipboardNodes.length === 0}
+          >
+            Cut
           </button>
           <button
             type="button"
@@ -1386,6 +1681,8 @@ export function App() {
                   editOnClick={viewState.selectedNodePath === rootNodePath && !rootEditing}
                   onFocus={() => selectNode(rootNodePath, rootEditing)}
                   onEditClick={() => selectNode(rootNodePath, true)}
+                  onToggleSelect={() => selectNode(rootNodePath, false)}
+                  onRangeSelect={() => selectNode(rootNodePath, false)}
                   onChange={(text) =>
                     commitMindmap(updateRootTitle(mindmap!, text), "Edit root heading")
                   }
@@ -1537,6 +1834,8 @@ function NodeTextArea({
   editOnClick,
   onFocus,
   onEditClick,
+  onToggleSelect,
+  onRangeSelect,
   onChange,
   onBlur,
   onDragPointerDown,
@@ -1554,6 +1853,8 @@ function NodeTextArea({
   editOnClick: boolean;
   onFocus: () => void;
   onEditClick: () => void;
+  onToggleSelect: () => void;
+  onRangeSelect: () => void;
   onChange: (text: string) => void;
   onBlur: (nextFocusedNode: FocusedNodeTarget | null) => void;
   onDragPointerDown?: (event: PointerEvent<HTMLTextAreaElement>) => void;
@@ -1593,6 +1894,18 @@ function NodeTextArea({
       aria-label={ariaLabel}
       readOnly={readOnly}
       onPointerDown={(event) => {
+        if (readOnly && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          if (event.shiftKey) {
+            onRangeSelect();
+          } else {
+            onToggleSelect();
+          }
+          return;
+        }
+
         pointerStartRef.current = {
           pointerId: event.pointerId,
           x: event.clientX,
@@ -1649,10 +1962,14 @@ function NodeEditor({
   node,
   side,
   selectedPath,
+  selectedPaths,
   editingPath,
+  collapsedPaths,
   dragSourcePath,
   dropTarget,
   onSelect,
+  onSelectRange,
+  onToggleSelect,
   onExitEditing,
   onTextChange,
   onFocusChildOrCreate,
@@ -1662,6 +1979,7 @@ function NodeEditor({
   onFocusPrevious,
   onFocusParent,
   onMove,
+  onToggleCollapse,
   onDragPointerDown,
   onDragPointerMove,
   onDragPointerUp,
@@ -1670,10 +1988,14 @@ function NodeEditor({
   node: MindmapNode;
   side: Direction;
   selectedPath: string;
+  selectedPaths: string[];
   editingPath: string | null;
+  collapsedPaths: Set<string>;
   dragSourcePath: string | null;
   dropTarget: NodeDropTarget | null;
   onSelect: (path: string, editing: boolean) => void;
+  onSelectRange: (path: string) => void;
+  onToggleSelect: (path: string) => void;
   onExitEditing: (path: string) => void;
   onTextChange: (path: string, text: string) => void;
   onFocusChildOrCreate: (path: string) => void;
@@ -1683,6 +2005,7 @@ function NodeEditor({
   onFocusPrevious: (path: string) => void;
   onFocusParent: (path: string) => void;
   onMove: (path: string, direction: NodeMoveDirection) => void;
+  onToggleCollapse: (path: string) => void;
   onDragPointerDown: (
     path: string,
     event: PointerEvent<HTMLTextAreaElement>
@@ -1706,10 +2029,14 @@ function NodeEditor({
             node={child}
             side={side}
             selectedPath={selectedPath}
+            selectedPaths={selectedPaths}
             editingPath={editingPath}
+            collapsedPaths={collapsedPaths}
             dragSourcePath={dragSourcePath}
             dropTarget={dropTarget}
             onSelect={onSelect}
+            onSelectRange={onSelectRange}
+            onToggleSelect={onToggleSelect}
             onExitEditing={onExitEditing}
             onTextChange={onTextChange}
             onFocusChildOrCreate={onFocusChildOrCreate}
@@ -1719,6 +2046,7 @@ function NodeEditor({
             onFocusPrevious={onFocusPrevious}
             onFocusParent={onFocusParent}
             onMove={onMove}
+            onToggleCollapse={onToggleCollapse}
             onDragPointerDown={onDragPointerDown}
             onDragPointerMove={onDragPointerMove}
             onDragPointerUp={onDragPointerUp}
@@ -1728,17 +2056,21 @@ function NodeEditor({
       </div>
     ) : null;
 
-  const selected = selectedPath === node.path;
+  const selected = selectedPaths.includes(node.path);
+  const primarySelected = selectedPath === node.path;
   const editing = editingPath === node.path;
+  const collapsed = collapsedPaths.has(node.path);
+  const hasChildren = node.children.length > 0;
 
   return (
-    <div className={`node-subtree ${side}`}>
-      {side === "left" && children}
+    <div className={`node-subtree ${side}${collapsed ? " collapsed" : ""}`}>
+      {side === "left" && !collapsed && children}
       <div className="node-row">
         <NodeTextArea
           className={classNames(
             "node-input",
             selected && "selected",
+            selected && !primarySelected && "secondary-selected",
             !editing && "draggable-node",
             dragSourcePath === node.path && "drag-source",
             dropTarget?.targetPath === node.path && `drop-${dropTarget.position}`
@@ -1748,9 +2080,11 @@ function NodeEditor({
           width={getNodeInputWidth(node.text)}
           ariaLabel={`Node ${node.path}`}
           readOnly={!editing}
-          editOnClick={selected && !editing}
+          editOnClick={primarySelected && !editing}
           onFocus={() => onSelect(node.path, editing)}
           onEditClick={() => onSelect(node.path, true)}
+          onToggleSelect={() => onToggleSelect(node.path)}
+          onRangeSelect={() => onSelectRange(node.path)}
           onChange={(text) => onTextChange(node.path, text)}
           onBlur={(nextFocusedPath) => {
             if (node.text.length === 0 && node.children.length === 0) {
@@ -1800,8 +2134,22 @@ function NodeEditor({
             }
           }}
         />
+        {hasChildren && (
+          <button
+            type="button"
+            className="node-toggle"
+            aria-label={`${collapsed ? "Expand" : "Collapse"} Node ${node.path}`}
+            title={collapsed ? "Expand" : "Collapse"}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            onClick={() => onToggleCollapse(node.path)}
+          >
+            {collapsed ? "›" : "⌄"}
+          </button>
+        )}
       </div>
-      {side === "right" && children}
+      {side === "right" && !collapsed && children}
     </div>
   );
 }
@@ -2088,9 +2436,118 @@ function firstChildPathForExistingNode(
   return parent?.children[0]?.path ?? null;
 }
 
+function selectionPathsForMindmap(
+  mindmap: Mindmap | null,
+  viewState: MindmapViewState
+): string[] {
+  if (!mindmap) {
+    return viewState.selectedNodePaths;
+  }
+
+  const candidates =
+    viewState.selectedNodePaths.length > 0
+      ? viewState.selectedNodePaths
+      : viewState.selectedNodePath
+        ? [viewState.selectedNodePath]
+        : [];
+  const valid = candidates.filter(
+    (path) => isRootNodePath(path) || findNode(mindmap, path)
+  );
+  if (
+    viewState.selectedNodePath &&
+    !valid.includes(viewState.selectedNodePath) &&
+    (isRootNodePath(viewState.selectedNodePath) ||
+      findNode(mindmap, viewState.selectedNodePath))
+  ) {
+    valid.push(viewState.selectedNodePath);
+  }
+
+  return orderSelectionPaths(mindmap, uniqueStrings(valid));
+}
+
+function collapsedPathsForMindmap(mindmap: Mindmap | null, paths: string[]): string[] {
+  if (!mindmap) {
+    return paths;
+  }
+
+  return orderSelectionPaths(
+    mindmap,
+    paths.filter((path) => {
+      const node = findNode(mindmap, path);
+      return node !== null && node.children.length > 0;
+    })
+  );
+}
+
+function orderSelectionPaths(mindmap: Mindmap, paths: string[]): string[] {
+  const requested = new Set(paths);
+  const ordered = flattenNodes(mindmap)
+    .map((node) => node.path)
+    .filter((path) => requested.has(path));
+
+  if (requested.has(rootNodePath)) {
+    return [rootNodePath, ...ordered];
+  }
+
+  return ordered;
+}
+
+function rangeSelectionPaths(
+  mindmap: Mindmap,
+  collapsedPaths: Set<string>,
+  fromPath: string,
+  toPath: string
+): string[] {
+  if (isRootNodePath(fromPath) || isRootNodePath(toPath)) {
+    return [toPath];
+  }
+
+  const visiblePaths = visibleNodePaths(mindmap, collapsedPaths);
+  const fromIndex = visiblePaths.indexOf(fromPath);
+  const toIndex = visiblePaths.indexOf(toPath);
+  if (fromIndex === -1 || toIndex === -1) {
+    return [toPath];
+  }
+
+  const start = Math.min(fromIndex, toIndex);
+  const end = Math.max(fromIndex, toIndex);
+  return visiblePaths.slice(start, end + 1);
+}
+
+function visibleNodePaths(mindmap: Mindmap, collapsedPaths: Set<string>): string[] {
+  const paths: string[] = [];
+  for (const node of mindmap.children) {
+    collectVisibleNodePaths(node, collapsedPaths, paths);
+  }
+  return paths;
+}
+
+function collectVisibleNodePaths(
+  node: MindmapNode,
+  collapsedPaths: Set<string>,
+  paths: string[]
+): void {
+  paths.push(node.path);
+  if (collapsedPaths.has(node.path)) {
+    return;
+  }
+
+  for (const child of node.children) {
+    collectVisibleNodePaths(child, collapsedPaths, paths);
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function sameStringList(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function selectionPathAfterDelete(mindmap: Mindmap, fallbackPath: string): string {
   if (isRootNodePath(fallbackPath)) {
-    return rootNodePath;
+    return firstNodePath(mindmap) || rootNodePath;
   }
 
   return findNode(mindmap, fallbackPath) ? fallbackPath : firstNodePath(mindmap);
@@ -2603,7 +3060,8 @@ function perpendicularDistance(
 function buildConnectorPaths(
   workspace: HTMLElement,
   mindmap: Mindmap,
-  zoom: number
+  zoom: number,
+  collapsedPaths: Set<string>
 ): ConnectorPath[] {
   const paths: ConnectorPath[] = [];
   const rootInput = nodeElement(workspace, rootNodePath);
@@ -2615,6 +3073,10 @@ function buildConnectorPaths(
   const addNodeConnectors = (parentPath: string, children: MindmapNode[]) => {
     const parentElement = nodeElement(workspace, parentPath);
     if (!parentElement) {
+      return;
+    }
+
+    if (collapsedPaths.has(parentPath)) {
       return;
     }
 
@@ -2676,7 +3138,8 @@ function nodeAnchor(
   zoom: number
 ): { x: number; y: number } {
   const workspaceRect = workspace.getBoundingClientRect();
-  const rect = element.getBoundingClientRect();
+  const anchorElement = connectorAnchorElement(element, role);
+  const rect = anchorElement.getBoundingClientRect();
   const scale = zoom || 1;
   const isRight = direction === "right";
   const anchorX =
@@ -2692,6 +3155,15 @@ function nodeAnchor(
     x: (anchorX - workspaceRect.left) / scale,
     y: (rect.top + rect.height / 2 - workspaceRect.top) / scale
   };
+}
+
+function connectorAnchorElement(element: HTMLElement, role: "source" | "target"): HTMLElement {
+  if (role === "target") {
+    return element;
+  }
+
+  const row = element.closest<HTMLElement>(".node-row");
+  return row ?? element;
 }
 
 function connectorPathToChildren(

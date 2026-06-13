@@ -35,11 +35,12 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 외부 변경 file watcher + polling, clean 자동 리로드, invalid 외부 파일 진단, dirty 충돌 처리
 - 외부 diff 도구 실행용 임시 파일 생성 및 실행 명령
 - SQLite sidecar 기반 view state 저장
-- 선택 모드 기반 키보드 이동
+- 선택 모드 기반 키보드 이동과 다중 선택
 - 키바인딩 도움말
-- Markdown subtree 클립보드 복사/붙여넣기
+- Markdown subtree 클립보드 복사/잘라내기/붙여넣기
 - 캔버스 드래그 pan과 SQLite view state 저장
 - 마우스 드래그 기반 노드 재배치
+- 노드 접기/펼치기와 큰 마인드맵용 가로 확장 레이아웃
 - 기능별 unit test
 - Playwright 기반 e2e user-flow test
 
@@ -91,8 +92,10 @@ pnpm tauri dev
 - 텍스트와 자식이 모두 없는 빈 노드는 포커스를 잃으면 자동 삭제
 - 마우스 클릭: 노드 선택
 - 선택된 노드 다시 클릭 또는 선택 모드 `Enter`: 선택 노드 편집
+- 선택 모드 `Cmd/Ctrl+Click`: 노드 선택 토글
+- 선택 모드 `Shift+Click` 또는 `Shift+Arrow`: 기준 노드부터 대상 노드까지 범위 선택
 - 노드 드래그: 대상 노드의 위/아래/가운데로 끌어 앞 형제/뒤 형제/자식으로 재배치
-- `Cmd/Ctrl+Arrow`: 선택 노드를 화면상 해당 방향으로 이동
+- `Cmd/Ctrl+Arrow`: 선택 노드를 화면상 해당 방향으로 이동. 여러 형제 노드가 선택된 경우 묶음으로 이동. 루트 노드의 좌/우 이동은 반대쪽 가지로 이동
 - `Option+Backspace` 또는 `Cmd+Backspace`: 노드 삭제
 - `Esc`: 편집 모드에서 선택 모드로 전환. 빈 일반 노드에서는 해당 노드 삭제
 - 선택 모드 `ArrowUp` / `ArrowDown`: 화면상 위/아래에 있는 가장 가까운 노드 선택
@@ -100,9 +103,12 @@ pnpm tauri dev
 - 선택 모드 `Enter`: 선택 노드 편집
 - 선택 모드 `Tab`: 첫 자식 노드 선택, 없으면 자식 노드 생성
 - 선택 모드 `Shift+Tab`: 부모 노드 선택
-- 선택 모드 `Cmd/Ctrl+Arrow`: 선택 노드를 화면상 해당 방향으로 이동
-- 선택 모드 `Cmd+C`: 선택 subtree를 Markdown 목록으로 복사
-- 선택 모드 `Cmd+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
+- 선택 모드 `Space`: 선택 노드의 자식 접기/펼치기
+- 선택 모드 `Delete` 또는 `Backspace`: 선택 노드 삭제
+- 선택 모드 `Cmd/Ctrl+Arrow`: 선택 노드를 화면상 해당 방향으로 이동. 여러 형제 노드가 선택된 경우 묶음으로 이동. 루트 노드의 좌/우 이동은 반대쪽 가지로 이동
+- 선택 모드 `Cmd/Ctrl+C`: 선택 subtree를 Markdown 목록으로 복사
+- 선택 모드 `Cmd/Ctrl+X`: 선택 subtree를 Markdown 목록으로 복사한 뒤 삭제
+- 선택 모드 `Cmd/Ctrl+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - 빈 캔버스 드래그: 화면 pan
 - 마우스 휠: 화면 확대/축소
 - `Center`: pan 위치 초기화

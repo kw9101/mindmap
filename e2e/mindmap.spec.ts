@@ -493,6 +493,112 @@ test("selection mode Tab stays in the app and creates or selects child nodes", a
   await expect(child).not.toHaveClass(/selected/);
 });
 
+test("selection mode clipboard copies and pastes subtrees", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:1421"
+  });
+
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("A");
+  await parent.press("Tab");
+  const child = nodeInput(page, "right/0/0");
+  await child.fill("A-1");
+  await child.press("Shift+Tab");
+  await parent.press("Enter");
+  const target = nodeInput(page, "right/1");
+  await target.fill("B");
+
+  await parent.click();
+  await expect(parent).toHaveClass(/selected/);
+  await expect(parent).toHaveAttribute("readonly", "");
+
+  await page.keyboard.press("Control+C");
+  await expect(
+    page.evaluate(() => navigator.clipboard.readText())
+  ).resolves.toBe("- A\n  - A-1\n");
+
+  await target.click();
+  await page.keyboard.press("Control+V");
+
+  await expect(nodeInput(page, "right/2")).toHaveValue("A");
+  await expect(nodeInput(page, "right/2/0")).toHaveValue("A-1");
+  await expect(markdownOutput(page)).toHaveText(
+    "#\n\n- A\n  - A-1\n- B\n- A\n  - A-1\n"
+  );
+});
+
+test("multi selection copies deletes and moves node blocks", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:1421"
+  });
+
+  let current = nodeInput(page, "right/0");
+  await current.fill("A");
+  for (const [index, text] of ["B", "C", "D"].entries()) {
+    await current.press("Enter");
+    current = nodeInput(page, `right/${index + 1}`);
+    await current.fill(text);
+  }
+  await current.press("Escape");
+
+  await nodeInput(page, "right/1").click();
+  await nodeInput(page, "right/2").click({ modifiers: ["Control"] });
+
+  await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(nodeInput(page, "right/2")).toHaveClass(/selected/);
+
+  await page.keyboard.press("Control+C");
+  await expect(page.evaluate(() => navigator.clipboard.readText())).resolves.toBe(
+    "- B\n- C\n"
+  );
+
+  await nodeInput(page, "right/3").click();
+  await page.keyboard.press("Control+V");
+
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n- C\n- D\n- B\n- C\n");
+
+  await nodeInput(page, "right/1").click();
+  await nodeInput(page, "right/2").click({ modifiers: ["Shift"] });
+  await page.keyboard.press("Delete");
+
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- D\n- B\n- C\n");
+
+  await nodeInput(page, "right/2").click();
+  await nodeInput(page, "right/3").click({ modifiers: ["Shift"] });
+  await page.keyboard.press("Control+ArrowUp");
+
+  await expect(nodeInput(page, "right/1")).toHaveValue("B");
+  await expect(nodeInput(page, "right/2")).toHaveValue("C");
+  await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n- C\n- D\n");
+});
+
+test("selection mode cuts and pastes subtrees", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:1421"
+  });
+
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("A");
+  await parent.press("Tab");
+  await nodeInput(page, "right/0/0").fill("A-1");
+  await nodeInput(page, "right/0/0").press("Shift+Tab");
+  await parent.press("Enter");
+  const target = nodeInput(page, "right/1");
+  await target.fill("B");
+
+  await parent.click();
+  await page.keyboard.press("Control+X");
+
+  await expect(page.evaluate(() => navigator.clipboard.readText())).resolves.toBe(
+    "- A\n  - A-1\n"
+  );
+  await expect(markdownOutput(page)).toHaveText("#\n\n- B\n");
+
+  await page.keyboard.press("Control+V");
+
+  await expect(markdownOutput(page)).toHaveText("#\n\n- B\n- A\n  - A-1\n");
+});
+
 test("selection mode Cmd/Ctrl arrows move the selected node", async ({ page }) => {
   const first = nodeInput(page, "right/0");
   await first.fill("A");
@@ -524,6 +630,20 @@ test("selection mode Cmd/Ctrl arrows move the selected node", async ({ page }) =
   await expect(nodeInput(page, "right/1")).toHaveValue("B");
   await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
+
+  await page.keyboard.press("Control+ArrowLeft");
+
+  await expect(nodeInput(page, "left/0")).toHaveValue("B");
+  await expect(nodeInput(page, "left/0")).toHaveClass(/selected/);
+  await expect(markdownOutput(page)).toHaveText(
+    "#\n\n## Right\n\n- A\n\n## Left\n\n- B\n"
+  );
+
+  await page.keyboard.press("Control+ArrowRight");
+
+  await expect(nodeInput(page, "right/1")).toHaveValue("B");
+  await expect(nodeInput(page, "right/1")).toHaveClass(/selected/);
+  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n- A\n- B\n");
 });
 
 test("editing mode Cmd/Ctrl arrows move the node and keep editing", async ({
@@ -629,6 +749,52 @@ test("horizontal arrows move one generation at a time", async ({ page }) => {
   await page.keyboard.press("ArrowRight");
 
   await expect(grandchild).toHaveClass(/selected/);
+});
+
+test("Space collapses and expands selected node children", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+  const child = nodeInput(page, "right/0/0");
+  await child.fill("Child");
+  await child.press("Shift+Tab");
+  await parent.press("Escape");
+
+  await page.keyboard.press("Space");
+
+  await expect(nodeInput(page, "right/0/0")).toHaveCount(0);
+  await expect(markdownOutput(page)).toHaveText("#\n\n- Parent\n  - Child\n");
+
+  await page.keyboard.press("Space");
+
+  await expect(nodeInput(page, "right/0/0")).toHaveValue("Child");
+});
+
+test("collapsing a node keeps sibling connector layout stable", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Research");
+  await parent.press("Tab");
+  const child = nodeInput(page, "right/0/0");
+  await child.fill("Sources");
+  await child.press("Shift+Tab");
+  await parent.press("Enter");
+  const draft = nodeInput(page, "right/1");
+  await draft.fill("Draft");
+  await draft.press("Enter");
+  const review = nodeInput(page, "right/2");
+  await review.fill("Review");
+  await review.press("Escape");
+
+  const before = await connectorLayoutSnapshot(page);
+  expect(before.connectorCount).toBe(2);
+
+  await parent.click();
+  await page.keyboard.press("Space");
+
+  const after = await connectorLayoutSnapshot(page);
+  expect(after.connectorCount).toBe(1);
+  expect(after.positions).toEqual(before.positions);
+  await expect(nodeInput(page, "right/0/0")).toHaveCount(0);
 });
 
 test("Tab while editing creates a child node instead of indenting under a sibling", async ({
@@ -920,6 +1086,55 @@ test("mobile viewport keeps curved connectors and draggable pan", async ({ page 
   expect(mobileState!.allConnectorsAreBezier).toBe(true);
 });
 
+test("large mindmap layout keeps deep nodes separated and scrollable", async ({
+  page
+}) => {
+  let path = "right/0";
+  let current = nodeInput(page, path);
+  await current.fill("Depth 0");
+
+  for (let depth = 1; depth <= 13; depth += 1) {
+    await current.press("Tab");
+    path = `${path}/0`;
+    current = nodeInput(page, path);
+    await current.fill(`Depth ${depth}`);
+  }
+
+  const layout = await page.evaluate(() => {
+    const viewport = document.querySelector(".workspace-viewport");
+    const workspace = document.querySelector(".workspace");
+    const rects = Array.from(document.querySelectorAll(".node-input")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom
+      };
+    });
+    const overlapping = rects.some((rect, index) =>
+      rects.slice(index + 1).some(
+        (other) =>
+          rect.left < other.right - 1 &&
+          rect.right > other.left + 1 &&
+          rect.top < other.bottom - 1 &&
+          rect.bottom > other.top + 1
+      )
+    );
+
+    return {
+      overlapping,
+      viewportWidth: viewport?.clientWidth ?? 0,
+      scrollWidth: viewport?.scrollWidth ?? 0,
+      workspaceWidth: workspace?.getBoundingClientRect().width ?? 0
+    };
+  });
+
+  expect(layout.overlapping).toBe(false);
+  expect(layout.scrollWidth).toBeGreaterThan(layout.viewportWidth);
+  expect(layout.workspaceWidth).toBeGreaterThan(layout.viewportWidth);
+});
+
 test("long node text wraps instead of clipping", async ({ page }) => {
   const node = nodeInput(page, "right/0");
   const emptyHeight = await elementHeight(node);
@@ -959,6 +1174,37 @@ test("empty nodes stay compact and grow with text", async ({ page }) => {
 
   expect(filledWidth).toBeGreaterThan(emptyWidth);
 });
+
+async function connectorLayoutSnapshot(page: Page) {
+  return page.evaluate(() => {
+    const rectForPath = (path: string) => {
+      const element = document.querySelector<HTMLElement>(
+        `[data-node-path="${path}"]`
+      );
+      if (!element) {
+        return null;
+      }
+
+      const rect = element.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        top: Math.round(rect.top),
+        bottom: Math.round(rect.bottom)
+      };
+    };
+
+    return {
+      connectorCount: document.querySelectorAll(".connector-layer path").length,
+      positions: {
+        root: rectForPath("root"),
+        parent: rectForPath("right/0"),
+        draft: rectForPath("right/1"),
+        review: rectForPath("right/2")
+      }
+    };
+  });
+}
 
 function markdownOutput(page: Page) {
   return page.locator(".markdown-panel pre");

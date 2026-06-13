@@ -86,6 +86,38 @@ export async function writeAppState(
   await invoke("write_app_state", { documentPath, key, value });
 }
 
+export async function writeClipboardText(text: string): Promise<void> {
+  if (isNativeAvailable()) {
+    await invoke("write_clipboard_text", { text });
+    return;
+  }
+
+  const clipboard = browserClipboard();
+  if (clipboard?.writeText) {
+    await clipboard.writeText(text);
+    return;
+  }
+
+  if (writeClipboardTextWithSelection(text)) {
+    return;
+  }
+
+  throw new Error("이 실행 환경에서는 클립보드 쓰기를 사용할 수 없습니다.");
+}
+
+export async function readClipboardText(): Promise<string> {
+  if (isNativeAvailable()) {
+    return invoke<string>("read_clipboard_text");
+  }
+
+  const clipboard = browserClipboard();
+  if (clipboard?.readText) {
+    return clipboard.readText();
+  }
+
+  throw new Error("이 실행 환경에서는 클립보드 읽기를 사용할 수 없습니다.");
+}
+
 export async function getSidecarPath(documentPath: string): Promise<string> {
   return invoke<string>("sidecar_path", { documentPath });
 }
@@ -130,4 +162,44 @@ export async function listenMarkdownFileChanged(
   return listen<MarkdownFileChangedEvent>("markdown-file-changed", (event) => {
     handler(event.payload);
   });
+}
+
+type BrowserClipboard = {
+  readText?: () => Promise<string>;
+  writeText?: (text: string) => Promise<void>;
+};
+
+function browserClipboard(): BrowserClipboard | undefined {
+  if (typeof navigator === "undefined") {
+    return undefined;
+  }
+
+  return navigator.clipboard as BrowserClipboard | undefined;
+}
+
+function writeClipboardTextWithSelection(text: string): boolean {
+  if (typeof document === "undefined" || typeof document.execCommand !== "function") {
+    return false;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "0";
+  document.body.appendChild(textArea);
+
+  const previousFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  textArea.focus();
+  textArea.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textArea);
+    previousFocus?.focus();
+  }
 }

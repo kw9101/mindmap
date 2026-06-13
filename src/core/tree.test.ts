@@ -8,13 +8,16 @@ import {
   addSiblingNode,
   createInitialMindmap,
   deleteNode,
+  deleteNodes,
   firstChildNodePath,
   flattenNodes,
   indentNode,
   insertChildNodes,
   insertSiblingNodes,
+  cloneNodesForPaths,
   moveNodeByDirection,
   moveNodeDown,
+  moveNodesByDirection,
   moveNodeTo,
   moveNodeUp,
   nextNodePath,
@@ -24,6 +27,7 @@ import {
   previousNodePath,
   previousSiblingNodePath,
   rootNodePath,
+  selectedTopLevelNodePaths,
   updateNodeText
 } from "./tree";
 
@@ -291,6 +295,54 @@ describe("mindmap tree commands", () => {
 `);
   });
 
+  it("moves root nodes across branches by horizontal keyboard direction", () => {
+    const movedLeft = moveNodeByDirection(
+      parse(`# Map
+
+- A
+`),
+      "right/0",
+      "left"
+    );
+
+    expect(movedLeft).not.toBeNull();
+    expect(movedLeft!.movedPath).toBe("left/0");
+    expect(serializeMindmap(movedLeft!.mindmap)).toBe(`# Map
+
+## Right
+
+
+## Left
+
+- A
+`);
+
+    const movedRight = moveNodeByDirection(
+      parse(`# Map
+
+## Right
+
+- R
+
+## Left
+
+- L
+`),
+      "left/0",
+      "right"
+    );
+
+    expect(movedRight).not.toBeNull();
+    expect(movedRight!.movedPath).toBe("right/1");
+    expect(serializeMindmap(movedRight!.mindmap)).toBe(`# Map
+
+## Right
+
+- R
+- L
+`);
+  });
+
   it("does not keyboard-move the root or nodes without a target", () => {
     const mindmap = parse(`# Map
 
@@ -300,7 +352,6 @@ describe("mindmap tree commands", () => {
     expect(moveNodeByDirection(mindmap, rootNodePath, "right")).toBeNull();
     expect(moveNodeByDirection(mindmap, "right/0", "up")).toBeNull();
     expect(moveNodeByDirection(mindmap, "right/0", "right")).toBeNull();
-    expect(moveNodeByDirection(mindmap, "right/0", "left")).toBeNull();
   });
 
   it("moves a node before or after another node", () => {
@@ -500,6 +551,153 @@ describe("mindmap tree commands", () => {
     expect(previousNodePath(mindmap, "right/0")).toBe(rootNodePath);
     expect(previousNodePath(mindmap, rootNodePath)).toBe(rootNodePath);
     expect(nextNodePath(mindmap, rootNodePath)).toBe("right/0");
+  });
+
+  it("normalizes multi-node selections to top-level document order", () => {
+    const mindmap = parse(`# Map
+
+- A
+  - A-1
+- B
+- C
+`);
+
+    expect(
+      selectedTopLevelNodePaths(mindmap, [
+        "right/2",
+        "right/0/0",
+        "right/0",
+        rootNodePath,
+        "right/1"
+      ])
+    ).toEqual(["right/0", "right/1", "right/2"]);
+  });
+
+  it("clones selected top-level nodes for multi-node clipboard commands", () => {
+    const mindmap = parse(`# Map
+
+- A
+  - A-1
+- B
+`);
+
+    const nodes = cloneNodesForPaths(mindmap, ["right/0", "right/0/0", "right/1"]);
+
+    expect(nodes.map((node) => node.text)).toEqual(["A", "B"]);
+    expect(nodes[0].children.map((node) => node.text)).toEqual(["A-1"]);
+  });
+
+  it("deletes multiple selected nodes in one command", () => {
+    const mindmap = parse(`# Map
+
+- A
+  - A-1
+- B
+- C
+`);
+
+    expect(
+      serializeMindmap(deleteNodes(mindmap, ["right/0", "right/0/0", "right/2"]))
+    ).toBe(`# Map
+
+- B
+`);
+  });
+
+  it("moves selected sibling blocks by keyboard direction", () => {
+    let result = moveNodesByDirection(
+      parse(`# Map
+
+- A
+- B
+- C
+- D
+`),
+      ["right/1", "right/2"],
+      "up"
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.movedPaths).toEqual(["right/0", "right/1"]);
+    expect(serializeMindmap(result!.mindmap)).toBe(`# Map
+
+- B
+- C
+- A
+- D
+`);
+
+    result = moveNodesByDirection(result!.mindmap, ["right/0", "right/1"], "down");
+    expect(result).not.toBeNull();
+    expect(result!.movedPaths).toEqual(["right/1", "right/2"]);
+    expect(serializeMindmap(result!.mindmap)).toBe(`# Map
+
+- A
+- B
+- C
+- D
+`);
+  });
+
+  it("indents and outdents selected sibling blocks", () => {
+    const indented = moveNodesByDirection(
+      parse(`# Map
+
+- A
+- B
+- C
+`),
+      ["right/1", "right/2"],
+      "right"
+    );
+
+    expect(indented).not.toBeNull();
+    expect(indented!.movedPaths).toEqual(["right/0/0", "right/0/1"]);
+    expect(serializeMindmap(indented!.mindmap)).toBe(`# Map
+
+- A
+  - B
+  - C
+`);
+
+    const outdented = moveNodesByDirection(
+      indented!.mindmap,
+      ["right/0/0", "right/0/1"],
+      "left"
+    );
+    expect(outdented).not.toBeNull();
+    expect(outdented!.movedPaths).toEqual(["right/1", "right/2"]);
+    expect(serializeMindmap(outdented!.mindmap)).toBe(`# Map
+
+- A
+- B
+- C
+`);
+  });
+
+  it("moves selected root blocks across branches", () => {
+    const result = moveNodesByDirection(
+      parse(`# Map
+
+- A
+- B
+`),
+      ["right/0", "right/1"],
+      "left"
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.movedPaths).toEqual(["left/0", "left/1"]);
+    expect(serializeMindmap(result!.mindmap)).toBe(`# Map
+
+## Right
+
+
+## Left
+
+- A
+- B
+`);
   });
 
   it("inserts copied nodes as siblings or children with inherited direction", () => {

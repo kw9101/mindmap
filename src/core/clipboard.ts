@@ -7,8 +7,14 @@ export type ClipboardParseResult =
   | { ok: false; diagnostics: Diagnostic[] };
 
 export function serializeNodeForClipboard(node: MindmapNode): string {
+  return serializeNodesForClipboard([node]);
+}
+
+export function serializeNodesForClipboard(nodes: MindmapNode[]): string {
   const lines: string[] = [];
-  writeNode(lines, node, 0);
+  for (const node of nodes) {
+    writeNode(lines, node, 0);
+  }
   return `${lines.join("\n")}\n`;
 }
 

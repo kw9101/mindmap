@@ -229,6 +229,18 @@ fn unwatch_markdown_file(
     Ok(())
 }
 
+#[tauri::command]
+fn write_clipboard_text(text: String) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(to_string)?;
+    clipboard.set_text(text).map_err(to_string)
+}
+
+#[tauri::command]
+fn read_clipboard_text() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(to_string)?;
+    clipboard.get_text().map_err(to_string)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -245,7 +257,9 @@ pub fn run() {
             prepare_external_diff_files,
             open_external_diff,
             watch_markdown_file,
-            unwatch_markdown_file
+            unwatch_markdown_file,
+            write_clipboard_text,
+            read_clipboard_text
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

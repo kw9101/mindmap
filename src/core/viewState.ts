@@ -1,6 +1,9 @@
 export type MindmapViewState = {
   selectedNodePath: string;
+  selectedNodePaths: string[];
+  selectionAnchorPath: string | null;
   editingNodePath: string | null;
+  collapsedNodePaths: string[];
   zoom: number;
   pan: { x: number; y: number };
 };
@@ -15,7 +18,10 @@ const maxPan = 20000;
 export function createDefaultViewState(selectedNodePath = ""): MindmapViewState {
   return {
     selectedNodePath,
+    selectedNodePaths: selectedNodePath ? [selectedNodePath] : [],
+    selectionAnchorPath: selectedNodePath || null,
     editingNodePath: selectedNodePath || null,
+    collapsedNodePaths: [],
     zoom: 1,
     pan: { x: 0, y: 0 }
   };
@@ -32,15 +38,34 @@ export function parseViewState(value: string | null, fallbackPath = ""): Mindmap
 
   try {
     const parsed = JSON.parse(value) as Partial<MindmapViewState>;
+    const selectedNodePath =
+      typeof parsed.selectedNodePath === "string"
+        ? parsed.selectedNodePath
+        : fallbackPath;
+    const selectedNodePaths = Array.isArray(parsed.selectedNodePaths)
+      ? parsed.selectedNodePaths.filter(
+          (path): path is string => typeof path === "string"
+        )
+      : selectedNodePath
+        ? [selectedNodePath]
+        : [];
+
     return {
-      selectedNodePath:
-        typeof parsed.selectedNodePath === "string"
-          ? parsed.selectedNodePath
-          : fallbackPath,
+      selectedNodePath,
+      selectedNodePaths,
+      selectionAnchorPath:
+        typeof parsed.selectionAnchorPath === "string"
+          ? parsed.selectionAnchorPath
+          : selectedNodePath || null,
       editingNodePath:
         typeof parsed.editingNodePath === "string" || parsed.editingNodePath === null
           ? parsed.editingNodePath
           : fallbackPath || null,
+      collapsedNodePaths: Array.isArray(parsed.collapsedNodePaths)
+        ? parsed.collapsedNodePaths.filter(
+            (path): path is string => typeof path === "string"
+          )
+        : [],
       zoom:
         typeof parsed.zoom === "number" && Number.isFinite(parsed.zoom)
           ? clampZoom(parsed.zoom)

@@ -17,7 +17,10 @@ describe("view state", () => {
 
     expect(JSON.parse(serializeViewState(viewState))).toEqual({
       selectedNodePath: "right/0",
+      selectedNodePaths: ["right/0"],
+      selectionAnchorPath: "right/0",
       editingNodePath: "right/0",
+      collapsedNodePaths: [],
       zoom: 1,
       pan: { x: 0, y: 0 }
     });
@@ -45,9 +48,31 @@ describe("view state", () => {
 
     expect(loaded).toEqual({
       selectedNodePath: "right/2",
+      selectedNodePaths: ["right/2"],
+      selectionAnchorPath: "right/2",
       editingNodePath: null,
+      collapsedNodePaths: [],
       zoom: 2,
       pan: { x: 20000, y: 0 }
+    });
+  });
+
+  it("loads multi selection and collapsed paths from stored state", () => {
+    const loaded = parseViewState(
+      JSON.stringify({
+        selectedNodePath: "right/1",
+        selectedNodePaths: ["right/0", null, "right/1"],
+        selectionAnchorPath: "right/0",
+        collapsedNodePaths: ["right/0", 12, "left/0"]
+      }),
+      "right/0"
+    );
+
+    expect(loaded).toMatchObject({
+      selectedNodePath: "right/1",
+      selectedNodePaths: ["right/0", "right/1"],
+      selectionAnchorPath: "right/0",
+      collapsedNodePaths: ["right/0", "left/0"]
     });
   });
 
