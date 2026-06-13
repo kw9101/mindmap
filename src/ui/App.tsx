@@ -9,6 +9,7 @@ import {
   type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent,
+  type RefObject,
   type WheelEvent
 } from "react";
 import {
@@ -116,6 +117,16 @@ type SearchMatch = {
   path: string;
 };
 
+type CommandPaletteCommand = {
+  id: string;
+  title: string;
+  detail: string;
+  shortcut?: string;
+  disabled?: boolean;
+  keywords?: string[];
+  run: () => void | Promise<void>;
+};
+
 type KeyboardShortcutGroup = {
   title: string;
   shortcuts: { keys: string; action: string }[];
@@ -192,8 +203,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Backspace/Delete", action: "노드 삭제" },
       { keys: "Cmd/Ctrl+C", action: "선택 subtree 복사" },
       { keys: "Cmd/Ctrl+X", action: "선택 subtree 잘라내기" },
-      { keys: "Cmd/Ctrl+V", action: "붙여넣기" },
-      { keys: "Cmd/Ctrl+F", action: "노드 검색" }
+      { keys: "Cmd/Ctrl+V", action: "붙여넣기" }
     ]
   },
   {
@@ -204,6 +214,8 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Cmd/Ctrl+Z", action: "Undo" },
       { keys: "Cmd/Ctrl+Shift+Z", action: "Redo" },
       { keys: "Cmd/Ctrl+Y", action: "Redo" },
+      { keys: "Cmd/Ctrl+F", action: "노드 검색" },
+      { keys: "Cmd/Ctrl+K 또는 Cmd/Ctrl+Shift+P", action: "커맨드 팔렛트" },
       { keys: "Normalize", action: "Markdown 정규화" },
       { keys: "Cmd/Ctrl++", action: "확대" },
       { keys: "Cmd/Ctrl+-", action: "축소" },
@@ -225,6 +237,8 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [diffFiles, setDiffFiles] = useState<DiffFiles | null>(null);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
   const [isPanning, setIsPanning] = useState(false);
@@ -239,6 +253,7 @@ export function App() {
   const [connectorPaths, setConnectorPaths] = useState<ConnectorPath[]>([]);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const commandPaletteInputRef = useRef<HTMLInputElement | null>(null);
   const panDragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -745,6 +760,22 @@ export function App() {
     }));
   }, []);
 
+  const handleAddRootNode = useCallback(
+    (direction: Direction) => {
+      if (!mindmap) {
+        return;
+      }
+
+      const next = addRootNode(mindmap, direction);
+      commitMindmap(
+        next,
+        direction === "right" ? "Add right root node" : "Add left root node",
+        lastRootPath(next, direction)
+      );
+    },
+    [commitMindmap, mindmap]
+  );
+
   const handleViewportWheel = useCallback((event: WheelEvent<HTMLElement>) => {
     if (event.deltaY === 0) {
       return;
@@ -1036,6 +1067,300 @@ export function App() {
       false
     );
   }, [commitMindmap, mindmap, selectedClipboardPaths, viewState.selectedNodePath]);
+
+  const handleEditSelectedNode = useCallback(() => {
+    if (!viewState.selectedNodePath) {
+      return;
+    }
+
+    selectNode(viewState.selectedNodePath, true);
+  }, [selectNode, viewState.selectedNodePath]);
+
+  const handleAddChildToSelectedNode = useCallback(() => {
+    if (!mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath)) {
+      return;
+    }
+
+    const next = addChildNode(mindmap, viewState.selectedNodePath);
+    commitMindmap(next, "Add child node", lastChildPath(next, viewState.selectedNodePath));
+  }, [commitMindmap, mindmap, viewState.selectedNodePath]);
+
+  const handleAddSiblingAfterSelectedNode = useCallback(() => {
+    if (!mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath)) {
+      return;
+    }
+
+    const next = addSiblingNode(mindmap, viewState.selectedNodePath);
+    commitMindmap(
+      next,
+      "Add sibling node",
+      nextSiblingNodePath(next, viewState.selectedNodePath)
+    );
+  }, [commitMindmap, mindmap, viewState.selectedNodePath]);
+
+  const handleToggleSelectedNodeCollapse = useCallback(() => {
+    if (!viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath)) {
+      return;
+    }
+
+    toggleCollapsedNode(viewState.selectedNodePath);
+  }, [toggleCollapsedNode, viewState.selectedNodePath]);
+
+  const openCommandPalette = useCallback(() => {
+    setCommandPaletteQuery("");
+    setShowCommandPalette(true);
+  }, []);
+
+  const closeCommandPalette = useCallback(() => {
+    setShowCommandPalette(false);
+  }, []);
+
+  const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(
+    () => [
+      {
+        id: "find-nodes",
+        title: "Find nodes",
+        detail: "검색창으로 이동",
+        shortcut: "Cmd/Ctrl+F",
+        disabled: !mindmap,
+        keywords: ["search", "찾기", "검색"],
+        run: focusSearchInput
+      },
+      {
+        id: "next-search-match",
+        title: "Next search match",
+        detail: "다음 검색 결과로 이동",
+        disabled: searchMatches.length === 0,
+        keywords: ["find", "search", "next", "다음"],
+        run: () => focusSearchMatch("next")
+      },
+      {
+        id: "previous-search-match",
+        title: "Previous search match",
+        detail: "이전 검색 결과로 이동",
+        disabled: searchMatches.length === 0,
+        keywords: ["find", "search", "previous", "이전"],
+        run: () => focusSearchMatch("previous")
+      },
+      {
+        id: "open-file",
+        title: "Open file",
+        detail: "Markdown 파일 열기",
+        shortcut: "Cmd/Ctrl+O",
+        keywords: ["file", "open", "열기"],
+        run: handleOpen
+      },
+      {
+        id: "save-file",
+        title: "Save",
+        detail: "현재 Markdown 저장",
+        shortcut: "Cmd/Ctrl+S",
+        keywords: ["file", "save", "저장"],
+        run: handleSave
+      },
+      {
+        id: "save-as-file",
+        title: "Save as",
+        detail: "다른 이름으로 저장",
+        keywords: ["file", "save", "저장"],
+        run: handleSaveAs
+      },
+      {
+        id: "normalize-markdown",
+        title: "Normalize Markdown",
+        detail: "Markdown 파일 형식 정규화",
+        keywords: ["markdown", "format", "정규화"],
+        run: handleNormalizeMarkdown
+      },
+      {
+        id: "undo",
+        title: "Undo",
+        detail: "이전 변경 되돌리기",
+        shortcut: "Cmd/Ctrl+Z",
+        disabled: !canUndo(history),
+        keywords: ["history", "되돌리기"],
+        run: handleUndo
+      },
+      {
+        id: "redo",
+        title: "Redo",
+        detail: "되돌린 변경 다시 적용",
+        shortcut: "Cmd/Ctrl+Shift+Z",
+        disabled: !canRedo(history),
+        keywords: ["history", "다시"],
+        run: handleRedo
+      },
+      {
+        id: "edit-selected-node",
+        title: "Edit selected node",
+        detail: "선택 노드 편집 시작",
+        disabled: !viewState.selectedNodePath,
+        keywords: ["node", "edit", "편집"],
+        run: handleEditSelectedNode
+      },
+      {
+        id: "add-right-root-node",
+        title: "Add right root node",
+        detail: "오른쪽 루트 노드 추가",
+        disabled: !mindmap,
+        keywords: ["node", "add", "right", "추가", "오른쪽"],
+        run: () => handleAddRootNode("right")
+      },
+      {
+        id: "add-left-root-node",
+        title: "Add left root node",
+        detail: "왼쪽 루트 노드 추가",
+        disabled: !mindmap,
+        keywords: ["node", "add", "left", "추가", "왼쪽"],
+        run: () => handleAddRootNode("left")
+      },
+      {
+        id: "add-child-node",
+        title: "Add child node",
+        detail: "선택 노드 아래에 자식 추가",
+        disabled:
+          !mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath),
+        keywords: ["node", "add", "child", "자식", "추가"],
+        run: handleAddChildToSelectedNode
+      },
+      {
+        id: "add-sibling-node",
+        title: "Add sibling node",
+        detail: "선택 노드 다음에 형제 추가",
+        disabled:
+          !mindmap || !viewState.selectedNodePath || isRootNodePath(viewState.selectedNodePath),
+        keywords: ["node", "add", "sibling", "형제", "추가"],
+        run: handleAddSiblingAfterSelectedNode
+      },
+      {
+        id: "delete-selected-nodes",
+        title: "Delete selected nodes",
+        detail: "선택 노드 삭제",
+        disabled: selectedClipboardPaths.length === 0,
+        keywords: ["node", "delete", "삭제"],
+        run: handleDeleteSelectedNodes
+      },
+      {
+        id: "copy-selected-nodes",
+        title: "Copy selected nodes",
+        detail: "선택 subtree 복사",
+        shortcut: "Cmd/Ctrl+C",
+        disabled: !mindmap || selectedClipboardNodes.length === 0,
+        keywords: ["clipboard", "copy", "복사"],
+        run: handleCopySubtree
+      },
+      {
+        id: "cut-selected-nodes",
+        title: "Cut selected nodes",
+        detail: "선택 subtree 잘라내기",
+        shortcut: "Cmd/Ctrl+X",
+        disabled: !mindmap || selectedClipboardNodes.length === 0,
+        keywords: ["clipboard", "cut", "잘라내기"],
+        run: handleCutSubtree
+      },
+      {
+        id: "paste-nodes",
+        title: "Paste nodes",
+        detail: "선택 노드 다음에 붙여넣기",
+        shortcut: "Cmd/Ctrl+V",
+        disabled: !mindmap || !selectedDocumentNode,
+        keywords: ["clipboard", "paste", "붙여넣기"],
+        run: handlePasteSubtree
+      },
+      {
+        id: "toggle-collapse",
+        title: "Toggle selected collapse",
+        detail: "선택 노드 접기/펼치기",
+        disabled: !selectedDocumentNode || selectedDocumentNode.children.length === 0,
+        keywords: ["node", "collapse", "expand", "접기", "펼치기"],
+        run: handleToggleSelectedNodeCollapse
+      },
+      {
+        id: "zoom-in",
+        title: "Zoom in",
+        detail: "캔버스 확대",
+        shortcut: "Cmd/Ctrl++",
+        keywords: ["view", "zoom", "확대"],
+        run: handleZoomIn
+      },
+      {
+        id: "zoom-out",
+        title: "Zoom out",
+        detail: "캔버스 축소",
+        shortcut: "Cmd/Ctrl+-",
+        keywords: ["view", "zoom", "축소"],
+        run: handleZoomOut
+      },
+      {
+        id: "reset-zoom",
+        title: "Reset zoom",
+        detail: "확대율 100%",
+        shortcut: "Cmd/Ctrl+0",
+        keywords: ["view", "zoom", "reset", "초기화"],
+        run: handleResetZoom
+      },
+      {
+        id: "center-pan",
+        title: "Center canvas",
+        detail: "pan 위치 초기화",
+        keywords: ["view", "pan", "center", "중앙"],
+        run: handleResetPan
+      },
+      {
+        id: "keyboard-shortcuts",
+        title: "Keyboard shortcuts",
+        detail: "키바인딩 도움말 열기",
+        shortcut: "?",
+        keywords: ["help", "shortcuts", "도움말"],
+        run: () => setShowKeyboardHelp(true)
+      }
+    ],
+    [
+      focusSearchInput,
+      focusSearchMatch,
+      handleAddChildToSelectedNode,
+      handleAddRootNode,
+      handleAddSiblingAfterSelectedNode,
+      handleCopySubtree,
+      handleCutSubtree,
+      handleDeleteSelectedNodes,
+      handleEditSelectedNode,
+      handleNormalizeMarkdown,
+      handleOpen,
+      handlePasteSubtree,
+      handleRedo,
+      handleResetPan,
+      handleResetZoom,
+      handleSave,
+      handleSaveAs,
+      handleToggleSelectedNodeCollapse,
+      handleUndo,
+      handleZoomIn,
+      handleZoomOut,
+      history,
+      mindmap,
+      searchMatches.length,
+      selectedClipboardNodes.length,
+      selectedClipboardPaths.length,
+      selectedDocumentNode,
+      viewState.selectedNodePath
+    ]
+  );
+
+  const executeCommandPaletteCommand = useCallback(
+    (command: CommandPaletteCommand) => {
+      if (command.disabled) {
+        return;
+      }
+
+      setShowCommandPalette(false);
+      setCommandPaletteQuery("");
+      void Promise.resolve(command.run()).catch((error) => {
+        setNotice(`명령을 실행할 수 없습니다: ${errorMessage(error)}`);
+      });
+    },
+    []
+  );
 
   const handlePrepareDiff = useCallback(async () => {
     if (!activeDocument.file || !activeDocument.conflict) {
@@ -1331,6 +1656,14 @@ export function App() {
   }, [showKeyboardHelp]);
 
   useEffect(() => {
+    if (!showCommandPalette) {
+      return;
+    }
+
+    commandPaletteInputRef.current?.focus();
+  }, [showCommandPalette]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isImeComposing(event)) {
         return;
@@ -1346,7 +1679,21 @@ export function App() {
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+      if (showCommandPalette) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeCommandPalette();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
+        event.preventDefault();
+        openCommandPalette();
+      } else if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "p") {
+        event.preventDefault();
+        openCommandPalette();
+      } else if ((event.metaKey || event.ctrlKey) && event.key === "/") {
         event.preventDefault();
         setShowKeyboardHelp(true);
       } else if (!editing && (event.key === "?" || (event.shiftKey && event.key === "/"))) {
@@ -1467,6 +1814,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     commitMindmap,
+    closeCommandPalette,
     expandNode,
     focusSearchInput,
     handleCopySubtree,
@@ -1483,8 +1831,10 @@ export function App() {
     mindmap,
     moveFocusedNode,
     moveSelectedNodes,
+    openCommandPalette,
     selectNode,
     selectNodeRange,
+    showCommandPalette,
     showKeyboardHelp,
     toggleCollapsedNode,
     viewState.editingNodePath,
@@ -1696,16 +2046,21 @@ export function App() {
           >
             ?
           </button>
+          <button
+            type="button"
+            aria-label="Command palette"
+            title="Command palette"
+            onClick={openCommandPalette}
+          >
+            Cmd
+          </button>
           {mindmap && (
             <>
               <button
                 type="button"
                 aria-label="Add right root node"
                 title="Add right root node"
-                onClick={() => {
-                  const next = addRootNode(mindmap, "right");
-                  commitMindmap(next, "Add right root node", lastRootPath(next, "right"));
-                }}
+                onClick={() => handleAddRootNode("right")}
               >
                 +R
               </button>
@@ -1713,10 +2068,7 @@ export function App() {
                 type="button"
                 aria-label="Add left root node"
                 title="Add left root node"
-                onClick={() => {
-                  const next = addRootNode(mindmap, "left");
-                  commitMindmap(next, "Add left root node", lastRootPath(next, "left"));
-                }}
+                onClick={() => handleAddRootNode("left")}
               >
                 +L
               </button>
@@ -1803,6 +2155,17 @@ export function App() {
 
       {showKeyboardHelp && (
         <KeyboardHelpModal onClose={() => setShowKeyboardHelp(false)} />
+      )}
+
+      {showCommandPalette && (
+        <CommandPaletteModal
+          commands={commandPaletteCommands}
+          query={commandPaletteQuery}
+          inputRef={commandPaletteInputRef}
+          onQueryChange={setCommandPaletteQuery}
+          onRun={executeCommandPaletteCommand}
+          onClose={closeCommandPalette}
+        />
       )}
 
       {notice && (
@@ -2035,6 +2398,131 @@ function KeyboardHelpModal({ onClose }: { onClose: () => void }) {
               </dl>
             </section>
           ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CommandPaletteModal({
+  commands,
+  query,
+  inputRef,
+  onQueryChange,
+  onRun,
+  onClose
+}: {
+  commands: CommandPaletteCommand[];
+  query: string;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onQueryChange: (query: string) => void;
+  onRun: (command: CommandPaletteCommand) => void;
+  onClose: () => void;
+}) {
+  const visibleCommands = useMemo(
+    () => filteredCommandPaletteCommands(commands, query),
+    [commands, query]
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeCommand = visibleCommands[activeIndex] ?? null;
+
+  useEffect(() => {
+    setActiveIndex(firstEnabledCommandIndex(visibleCommands));
+  }, [query, visibleCommands]);
+
+  const runActiveCommand = useCallback(() => {
+    const command =
+      activeCommand && !activeCommand.disabled
+        ? activeCommand
+        : visibleCommands.find((item) => !item.disabled);
+    if (command) {
+      onRun(command);
+    }
+  }, [activeCommand, onRun, visibleCommands]);
+
+  return (
+    <div
+      className="modal-backdrop command-palette-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className="command-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          } else if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActiveIndex((current) =>
+              nextEnabledCommandIndex(visibleCommands, current, 1)
+            );
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActiveIndex((current) =>
+              nextEnabledCommandIndex(visibleCommands, current, -1)
+            );
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            runActiveCommand();
+          }
+        }}
+      >
+        <header>
+          <div>
+            <h2>커맨드 팔렛트</h2>
+            <p>명령 이름이나 키워드로 실행할 작업을 찾습니다.</p>
+          </div>
+          <button type="button" aria-label="Close command palette" onClick={onClose}>
+            x
+          </button>
+        </header>
+        <input
+          ref={inputRef}
+          type="search"
+          className="command-palette-input"
+          aria-label="Command palette input"
+          aria-activedescendant={activeCommand ? `command-${activeCommand.id}` : undefined}
+          placeholder="Search commands"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+        />
+        <div className="command-list" role="listbox" aria-label="Commands">
+          {visibleCommands.length === 0 ? (
+            <div className="command-empty">일치하는 명령이 없습니다.</div>
+          ) : (
+            visibleCommands.map((command, index) => (
+              <button
+                key={command.id}
+                id={`command-${command.id}`}
+                type="button"
+                role="option"
+                className={classNames(
+                  "command-item",
+                  index === activeIndex && "active"
+                )}
+                aria-selected={index === activeIndex}
+                disabled={command.disabled}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => onRun(command)}
+              >
+                <span className="command-copy">
+                  <span className="command-title">{command.title}</span>
+                  <span className="command-detail">{command.detail}</span>
+                </span>
+                {command.shortcut && (
+                  <span className="command-shortcut">{command.shortcut}</span>
+                )}
+              </button>
+            ))
+          )}
         </div>
       </section>
     </div>
@@ -2442,6 +2930,53 @@ function toSingleLineNodeText(text: string): string {
 
 function classNames(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
+}
+
+function filteredCommandPaletteCommands(
+  commands: CommandPaletteCommand[],
+  query: string
+): CommandPaletteCommand[] {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return commands;
+  }
+
+  return commands.filter((command) => {
+    const haystack = [
+      command.title,
+      command.detail,
+      command.shortcut ?? "",
+      ...(command.keywords ?? [])
+    ]
+      .join(" ")
+      .toLocaleLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function firstEnabledCommandIndex(commands: CommandPaletteCommand[]): number {
+  const index = commands.findIndex((command) => !command.disabled);
+  return index === -1 ? 0 : index;
+}
+
+function nextEnabledCommandIndex(
+  commands: CommandPaletteCommand[],
+  currentIndex: number,
+  direction: 1 | -1
+): number {
+  if (commands.length === 0) {
+    return 0;
+  }
+
+  for (let offset = 1; offset <= commands.length; offset += 1) {
+    const index =
+      (currentIndex + direction * offset + commands.length) % commands.length;
+    if (!commands[index].disabled) {
+      return index;
+    }
+  }
+
+  return Math.min(currentIndex, commands.length - 1);
 }
 
 function nodeTargetFromRelatedTarget(

@@ -287,6 +287,129 @@ kbd {
   line-height: 1.2;
 }
 
+.command-palette-backdrop {
+  z-index: 30;
+  align-items: flex-start;
+  padding-top: min(12vh, 96px);
+}
+
+.command-palette {
+  width: min(640px, 100%);
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 60px rgba(28, 35, 45, 0.24);
+}
+
+.command-palette header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid #e3e7ed;
+}
+
+.command-palette h2,
+.command-palette p {
+  margin: 0;
+}
+
+.command-palette h2 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.command-palette p {
+  margin-top: 4px;
+  color: #5f6b7a;
+  font-size: 13px;
+}
+
+.command-palette-input {
+  width: calc(100% - 36px);
+  height: 42px;
+  margin: 14px 18px 10px;
+  padding: 0 12px;
+  border: 1px solid #b9c2cf;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #202124;
+}
+
+.command-palette-input:focus {
+  outline: none;
+  border-color: #4d88ff;
+  box-shadow: 0 0 0 3px #dce8ff;
+}
+
+.command-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(420px, calc(100vh - 260px));
+  overflow: auto;
+  padding: 0 10px 12px;
+}
+
+.command-item {
+  width: 100%;
+  height: auto;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.command-item.active:not(:disabled),
+.command-item:hover:not(:disabled) {
+  border-color: #8cb4ff;
+  background: #eef4ff;
+}
+
+.command-item:disabled {
+  border-color: transparent;
+  background: transparent;
+}
+
+.command-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.command-title,
+.command-detail,
+.command-shortcut {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-title {
+  color: #202124;
+  font-weight: 650;
+}
+
+.command-detail {
+  color: #5f6b7a;
+  font-size: 12px;
+}
+
+.command-shortcut {
+  max-width: 150px;
+  color: #516071;
+  font-size: 12px;
+}
+
+.command-empty {
+  padding: 18px 10px 20px;
+  color: #5f6b7a;
+}
+
 .notice,
 .conflict-panel {
   border-bottom: 1px solid #dfe2e7;
@@ -845,6 +968,33 @@ kbd {
 
   .keyboard-help header {
     padding: 14px 14px 12px;
+  }
+
+  .command-palette-backdrop {
+    padding-top: 12px;
+  }
+
+  .command-palette header {
+    padding: 14px 14px 12px;
+  }
+
+  .command-palette-input {
+    width: calc(100% - 28px);
+    margin: 12px 14px 8px;
+  }
+
+  .command-list {
+    max-height: calc(100vh - 170px);
+    padding: 0 8px 10px;
+  }
+
+  .command-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .command-shortcut {
+    max-width: 100%;
   }
 
   .shortcut-groups {

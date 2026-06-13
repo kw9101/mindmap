@@ -40,6 +40,7 @@ Tauri 기반 키보드 중심 마인드맵 프로그램입니다.
 - 선택 모드와 편집 모드의 명확한 시각 구분
 - 키바인딩 도움말
 - 노드 검색, 결과 이동, match highlight
+- 검색 가능한 커맨드 팔렛트
 - Markdown subtree 클립보드 복사/잘라내기/붙여넣기
 - 캔버스 드래그/버튼 pan, 상태 표시, SQLite view state 저장
 - 마우스 드래그 기반 노드 재배치
@@ -119,6 +120,7 @@ pnpm tauri dev
 - 선택 모드 `Cmd/Ctrl+X`: 선택 subtree를 Markdown 목록으로 복사한 뒤 삭제
 - 선택 모드 `Cmd/Ctrl+V`: Markdown 목록 또는 단일 텍스트를 선택 노드 다음에 붙여넣기
 - `Search` 또는 `Cmd/Ctrl+F`: 노드 텍스트 검색, `Enter` 다음 결과, `Shift+Enter` 이전 결과
+- `Cmd/Ctrl+K` 또는 `Cmd/Ctrl+Shift+P`: 커맨드 팔렛트 열기
 - 빈 캔버스 드래그: 화면 pan
 - 마우스 휠: 화면 확대/축소
 - pan 화살표: 화면 위치를 8px 단위로 조정

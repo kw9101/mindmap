@@ -460,7 +460,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - `Delete` / `Backspace`: 선택 노드 삭제. 여러 노드가 선택된 경우 한 번에 삭제한다.
 - `Cmd+S`: pending save flush 또는 저장 상태 확인. 기본 저장 모델은 자동 저장이다.
 - `Cmd+O`: Markdown 파일 열기
-- `Cmd+P`: 명령 팔레트
+- `Cmd/Ctrl+K` 또는 `Cmd/Ctrl+Shift+P`: 명령 팔레트
 - `Cmd+Z`: undo
 - `Cmd+Shift+Z` 또는 `Cmd+Y`: redo
 
@@ -656,7 +656,8 @@ SQLite에 저장하지 않는 문서 데이터:
 - pan 상태 표시와 8px 단위 방향 조절 버튼을 추가했다. 이 값은 기존 `viewState.pan`을 그대로 사용하므로 SQLite view state 저장과 함께 동작한다.
 - Tauri file watcher 생성 경로를 테스트 가능한 함수로 분리하고, 같은 경로를 사용하는 ignored stress test를 추가했다. `pnpm test:tauri:watch`는 기본 120회, 250ms 간격 반복 쓰기로 대상 Markdown 변경 이벤트를 확인한다.
 - 노드 검색 UI를 추가했다. `Cmd/Ctrl+F`로 검색창에 포커스하고, 검색어 match를 highlight하고, 다음/이전 결과로 이동하며, 접힌 조상은 자동으로 펼쳐 결과를 보이게 한다.
-- 검증: Vitest 82개 통과, Playwright e2e 59개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
+- 커맨드 팔렛트를 추가했다. `Cmd/Ctrl+K` 또는 `Cmd/Ctrl+Shift+P`로 열고, 명령 이름/키워드로 검색한 뒤 `Enter`로 검색, 파일, 히스토리, 노드 편집, 클립보드, 줌/팬, 도움말 명령을 실행한다.
+- 검증: Vitest 82개 통과, Playwright e2e 61개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
 
 ## 17. 남은 구현 후보
 

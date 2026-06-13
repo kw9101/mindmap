@@ -301,6 +301,33 @@ test("keyboard shortcut help opens from the toolbar and closes with Escape", asy
   await expect(dialog).toHaveCount(0);
 });
 
+test("command palette opens from shortcut and focuses node search", async ({
+  page
+}) => {
+  await page.keyboard.press("Control+K");
+
+  const dialog = page.getByRole("dialog", { name: "Command palette" });
+  await expect(dialog).toBeVisible();
+  const input = page.getByLabel("Command palette input");
+  await expect(input).toBeFocused();
+
+  await input.fill("find");
+  await page.keyboard.press("Enter");
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel("Search nodes")).toBeFocused();
+});
+
+test("command palette can run node commands", async ({ page }) => {
+  await page.keyboard.press("Control+K");
+  const input = page.getByLabel("Command palette input");
+  await input.fill("left root");
+  await page.keyboard.press("Enter");
+
+  await expect(nodeInput(page, "left/0")).toBeFocused();
+  await expect(markdownOutput(page)).toHaveText("#\n\n## Right\n\n-\n\n## Left\n\n-\n");
+});
+
 test("shortcut help keeps question mark editable and opens from selection mode", async ({
   page
 }) => {
