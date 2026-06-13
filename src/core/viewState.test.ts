@@ -27,7 +27,8 @@ describe("view state", () => {
       pan: { x: 0, y: 0 },
       markdownPanel: {
         position: "left",
-        size: 320
+        size: 320,
+        hidden: false
       }
     });
   });
@@ -48,7 +49,7 @@ describe("view state", () => {
         editingNodePath: null,
         zoom: 3,
         pan: { x: 30000.4, y: Number.NaN },
-        markdownPanel: { position: "right", size: 900 }
+        markdownPanel: { position: "right", size: 900, hidden: true }
       }),
       "right/0"
     );
@@ -63,8 +64,25 @@ describe("view state", () => {
       pan: { x: 20000, y: 0 },
       markdownPanel: {
         position: "right",
-        size: 640
+        size: 640,
+        hidden: true
       }
+    });
+  });
+
+  it("defaults old markdown panel state to visible", () => {
+    const loaded = parseViewState(
+      JSON.stringify({
+        selectedNodePath: "right/0",
+        markdownPanel: { position: "bottom", size: 420 }
+      }),
+      "right/0"
+    );
+
+    expect(loaded.markdownPanel).toEqual({
+      position: "bottom",
+      size: 420,
+      hidden: false
     });
   });
 

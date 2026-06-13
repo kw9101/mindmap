@@ -337,6 +337,8 @@ export function App() {
   const [isPanning, setIsPanning] = useState(false);
   const [isNodeDragging, setIsNodeDragging] = useState(false);
   const [nodeDropTarget, setNodeDropTarget] = useState<NodeDropTarget | null>(null);
+  const [markdownPanelDockTarget, setMarkdownPanelDockTarget] =
+    useState<MarkdownPanelPosition | null>(null);
   const [nodeDragPreview, setNodeDragPreview] = useState<NodeDragPreview | null>(
     null
   );
@@ -1140,6 +1142,16 @@ export function App() {
     }));
   }, []);
 
+  const handleMarkdownPanelHidden = useCallback((hidden: boolean) => {
+    setViewState((current) => ({
+      ...current,
+      markdownPanel: {
+        ...current.markdownPanel,
+        hidden
+      }
+    }));
+  }, []);
+
   const startMarkdownPanelResize = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -1247,6 +1259,21 @@ export function App() {
       }
 
       event.preventDefault();
+
+      const deltaX = Math.abs(event.clientX - drag.startX);
+      const deltaY = Math.abs(event.clientY - drag.startY);
+      if (Math.max(deltaX, deltaY) < clickMoveTolerancePx) {
+        setMarkdownPanelDockTarget(null);
+        return;
+      }
+
+      const layout = event.currentTarget.closest<HTMLElement>(".document-layout");
+      setMarkdownPanelDockTarget(
+        markdownPanelPositionForPointer(
+          event.clientX,
+          layout?.getBoundingClientRect() ?? null
+        )
+      );
     },
     []
   );
@@ -1259,6 +1286,7 @@ export function App() {
       }
 
       markdownPanelDockDragRef.current = null;
+      setMarkdownPanelDockTarget(null);
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -1277,6 +1305,22 @@ export function App() {
       handleMarkdownPanelPosition(nextPosition);
     },
     [handleMarkdownPanelPosition]
+  );
+
+  const cancelMarkdownPanelDockDrag = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const drag = markdownPanelDockDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+
+      markdownPanelDockDragRef.current = null;
+      setMarkdownPanelDockTarget(null);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
   );
 
   const handleMarkdownPanelDockKeyDown = useCallback(
@@ -2584,6 +2628,7 @@ export function App() {
   } as CSSProperties;
   const markdownPanelSizeText = `${viewState.markdownPanel.size}px`;
   const markdownPreviewLines = markdownPreviewLineSegments(activeDocument.source);
+  const markdownPanelHidden = viewState.markdownPanel.hidden;
   const rootEditing = viewState.editingNodePath === rootNodePath;
   const rootDropTarget =
     nodeDropTarget?.targetPath === rootNodePath ? nodeDropTarget : null;
@@ -3099,7 +3144,11 @@ export function App() {
       {parseResult.ok ? (
         <>
           <section
-            className={`document-layout markdown-${viewState.markdownPanel.position}`}
+            className={classNames(
+              "document-layout",
+              `markdown-${viewState.markdownPanel.position}`,
+              markdownPanelHidden && "markdown-hidden"
+            )}
             style={documentLayoutStyle}
           >
             <section className="workspace-shell">
@@ -3237,50 +3286,85 @@ export function App() {
               {layoutOverview && <LayoutOverview overview={layoutOverview} />}
             </section>
 
-            <section className="markdown-panel" aria-label="Markdown output">
+            {markdownPanelDockTarget && (
               <div
-                className="markdown-resize-handle"
-                role="separator"
-                aria-label="Resize Markdown panel"
-                aria-orientation={
-                  viewState.markdownPanel.position === "bottom"
-                    ? "horizontal"
-                    : "vertical"
-                }
-                aria-valuemin={minMarkdownPanelSize}
-                aria-valuemax={maxMarkdownPanelSize}
-                aria-valuenow={viewState.markdownPanel.size}
-                aria-valuetext={markdownPanelSizeText}
-                tabIndex={0}
-                title="Resize Markdown panel"
-                onPointerDown={startMarkdownPanelResize}
-                onPointerMove={handleMarkdownPanelResize}
-                onPointerUp={stopMarkdownPanelResize}
-                onPointerCancel={stopMarkdownPanelResize}
-                onKeyDown={handleMarkdownPanelResizeKeyDown}
+                className={classNames(
+                  "markdown-dock-target-preview",
+                  `dock-target-${markdownPanelDockTarget}`
+                )}
+                data-markdown-dock-target={markdownPanelDockTarget}
+                aria-hidden="true"
               />
-              <div className="markdown-panel-toolbar" aria-label="Markdown pane controls">
+            )}
+
+            {markdownPanelHidden ? (
+              <button
+                type="button"
+                className="markdown-panel-restore-button"
+                aria-label="Show Markdown pane"
+                title="Show Markdown pane"
+                onClick={() => handleMarkdownPanelHidden(false)}
+              >
+                <span aria-hidden="true" />
+              </button>
+            ) : (
+              <section className="markdown-panel" aria-label="Markdown output">
                 <div
-                  className="markdown-dock-handle"
-                  role="button"
-                  aria-label="Move Markdown pane"
+                  className="markdown-resize-handle"
+                  role="separator"
+                  aria-label="Resize Markdown panel"
+                  aria-orientation={
+                    viewState.markdownPanel.position === "bottom"
+                      ? "horizontal"
+                      : "vertical"
+                  }
+                  aria-valuemin={minMarkdownPanelSize}
+                  aria-valuemax={maxMarkdownPanelSize}
+                  aria-valuenow={viewState.markdownPanel.size}
+                  aria-valuetext={markdownPanelSizeText}
                   tabIndex={0}
-                  title="Move Markdown pane"
-                  onPointerDown={startMarkdownPanelDockDrag}
-                  onPointerMove={handleMarkdownPanelDockDrag}
-                  onPointerUp={stopMarkdownPanelDockDrag}
-                  onPointerCancel={stopMarkdownPanelDockDrag}
-                  onKeyDown={handleMarkdownPanelDockKeyDown}
+                  title="Resize Markdown panel"
+                  onPointerDown={startMarkdownPanelResize}
+                  onPointerMove={handleMarkdownPanelResize}
+                  onPointerUp={stopMarkdownPanelResize}
+                  onPointerCancel={stopMarkdownPanelResize}
+                  onKeyDown={handleMarkdownPanelResizeKeyDown}
                 />
-              </div>
-              <pre>
-                {markdownPreviewLines.map((line, index) => (
-                  <span className={line.className} key={index}>
-                    {line.text}
-                  </span>
-                ))}
-              </pre>
-            </section>
+                <div
+                  className="markdown-panel-toolbar"
+                  aria-label="Markdown pane controls"
+                >
+                  <div
+                    className="markdown-dock-handle"
+                    role="button"
+                    aria-label="Move Markdown pane"
+                    tabIndex={0}
+                    title="Move Markdown pane"
+                    onPointerDown={startMarkdownPanelDockDrag}
+                    onPointerMove={handleMarkdownPanelDockDrag}
+                    onPointerUp={stopMarkdownPanelDockDrag}
+                    onPointerCancel={cancelMarkdownPanelDockDrag}
+                    onKeyDown={handleMarkdownPanelDockKeyDown}
+                  />
+                  <button
+                    type="button"
+                    className="markdown-panel-hide-button"
+                    aria-label="Hide Markdown pane"
+                    title="Hide Markdown pane"
+                    onClick={() => handleMarkdownPanelHidden(true)}
+                  >
+                    <span aria-hidden="true" />
+                  </button>
+                </div>
+                <pre>
+                  {markdownPreviewLines.map((line, index) => (
+                    <span className={line.className} key={index}>
+                      {line.text}
+                    </span>
+                  ))}
+                </pre>
+              </section>
+            )}
           </section>
 
           {nodeDragSnapLine && (

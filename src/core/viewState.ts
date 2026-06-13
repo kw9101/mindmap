@@ -11,6 +11,7 @@ export type MindmapViewState = {
   markdownPanel: {
     position: MarkdownPanelPosition;
     size: number;
+    hidden: boolean;
   };
 };
 
@@ -37,7 +38,8 @@ export function createDefaultViewState(selectedNodePath = ""): MindmapViewState 
     pan: { x: 0, y: 0 },
     markdownPanel: {
       position: "left",
-      size: defaultMarkdownPanelSize
+      size: defaultMarkdownPanelSize,
+      hidden: false
     }
   };
 }
@@ -101,7 +103,8 @@ export function parseViewState(value: string | null, fallbackPath = ""): Mindmap
           typeof parsed.markdownPanel?.size === "number" &&
           Number.isFinite(parsed.markdownPanel.size)
             ? clampMarkdownPanelSize(parsed.markdownPanel.size)
-            : defaultMarkdownPanelSize
+            : defaultMarkdownPanelSize,
+        hidden: parsed.markdownPanel?.hidden === true
       }
     };
   } catch {

@@ -635,6 +635,8 @@ test("markdown panel starts left and can resize and dock by dragging", async ({
     name: "Resize Markdown panel"
   });
   const dockHandle = page.getByRole("button", { name: "Move Markdown pane" });
+  const hideButton = page.getByRole("button", { name: "Hide Markdown pane" });
+  const showButton = page.getByRole("button", { name: "Show Markdown pane" });
 
   await expect(layout).toHaveClass(/markdown-left/);
   await expect(page.getByLabel("Markdown pane controls")).toBeVisible();
@@ -652,7 +654,7 @@ test("markdown panel starts left and can resize and dock by dragging", async ({
   await expect(resizeHandle).toHaveAttribute("aria-valuenow", "420");
   expect(await elementWidth(panel)).toBeGreaterThanOrEqual(400);
 
-  await dragLocatorBy(page, dockHandle, 1120, 0);
+  await dragLocatorByAndExpectDockPreview(page, dockHandle, 1120, 0, "right");
   await expect(layout).toHaveClass(/markdown-right/);
   expect(await elementWidth(panel)).toBeGreaterThanOrEqual(400);
 
@@ -664,8 +666,19 @@ test("markdown panel starts left and can resize and dock by dragging", async ({
   expect(rightLayout).not.toBeNull();
   expect(rightLayout!.panelLeft).toBeGreaterThanOrEqual(rightLayout!.canvasRight - 2);
 
-  await dragLocatorBy(page, dockHandle, -520, 0);
+  await dragLocatorByAndExpectDockPreview(page, dockHandle, -520, 0, "bottom");
   await expect(layout).toHaveClass(/markdown-bottom/);
+
+  await hideButton.click();
+  await expect(layout).toHaveClass(/markdown-hidden/);
+  await expect(panel).toHaveCount(0);
+  await expect(resizeHandle).toHaveCount(0);
+  await expect(showButton).toBeVisible();
+
+  await showButton.click();
+  await expect(layout).not.toHaveClass(/markdown-hidden/);
+  await expect(panel).toBeVisible();
+  await expect(markdownOutput(page)).toHaveText("#\n");
 });
 
 test("node search highlights matches and jumps between nodes", async ({ page }) => {
@@ -2183,6 +2196,27 @@ async function dragLocatorBy(
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 6 });
   await page.mouse.up();
+}
+
+async function dragLocatorByAndExpectDockPreview(
+  page: Page,
+  locator: ReturnType<Page["locator"]>,
+  deltaX: number,
+  deltaY: number,
+  target: "bottom" | "left" | "right"
+): Promise<void> {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+  const preview = page.locator(".markdown-dock-target-preview");
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 6 });
+  await expect(preview).toHaveAttribute("data-markdown-dock-target", target);
+  await page.mouse.up();
+  await expect(preview).toHaveCount(0);
 }
 
 function markdownOutput(page: Page) {
