@@ -386,9 +386,10 @@ test("node hover handles add children siblings and delete nodes", async ({ page 
   const first = nodeInput(page, "right/0");
   await first.fill("A");
   await first.press("Escape");
-  await expect.poll(() => nodeActionOpacity(page, "right/0")).toBe("1");
+  await expect.poll(() => nodeActionOpacity(page, "right/0")).toBe("0");
 
   await first.hover();
+  await expect.poll(() => nodeActionOpacity(page, "right/0")).toBe("1");
   await page
     .getByRole("button", { exact: true, name: "Add child to Node right/0" })
     .click();

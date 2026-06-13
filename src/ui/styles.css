@@ -766,9 +766,7 @@ kbd {
 }
 
 .node-row:hover .node-actions,
-.node-row:focus-within .node-actions,
-.node-input.selected ~ .node-actions,
-.node-input.editing ~ .node-actions {
+.node-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
 }
