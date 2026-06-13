@@ -1,4 +1,4 @@
-export type MarkdownPanelPosition = "bottom" | "left" | "right";
+export type MarkdownPanelPosition = "bottom" | "left" | "right" | "top";
 
 export type MindmapViewState = {
   selectedNodePath: string;
@@ -164,7 +164,10 @@ function clampPanValue(value: number): number {
 function parseMarkdownPanelPosition(
   position: unknown
 ): MarkdownPanelPosition {
-  return position === "left" || position === "right" || position === "bottom"
+  return position === "left" ||
+    position === "right" ||
+    position === "bottom" ||
+    position === "top"
     ? position
     : "left";
 }

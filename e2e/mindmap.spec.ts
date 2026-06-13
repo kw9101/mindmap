@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("initial document renders virtual start nodes", async ({ page }) => {
-  await expect(page.locator(".file-name")).toHaveText("untitled.md");
+  await expect(documentFileName(page)).toHaveValue("untitled.md");
   await expect(page.getByText("browser preview")).toBeVisible();
   await expect(page.getByLabel("Root heading")).toHaveValue("");
   await expect(page.locator(".node-input")).toHaveCount(0);
@@ -20,6 +20,38 @@ test("initial document renders virtual start nodes", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("#\n");
 });
 
+test("draft file name can be edited before saving", async ({ page }) => {
+  await mockTauriSaveMarkdown(page);
+
+  const fileName = documentFileName(page);
+  await expect(fileName).toHaveValue("untitled.md");
+  await expect(fileName).not.toHaveAttribute("readonly", "");
+
+  await fileName.fill("Project Plan");
+  await fileName.press("Enter");
+
+  await expect(fileName).toHaveValue("Project Plan.md");
+
+  await page.getByRole("button", { exact: true, name: "Save" }).click();
+
+  await expect(fileName).toHaveValue("Project Plan.md");
+  await expect(fileName).toHaveAttribute("readonly", "");
+  await expect(page.getByText("저장됨: Project Plan.md")).toBeVisible();
+
+  const saveState = await page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __mindmapSaveMock?: { savedDefaultPath: string | null; savedPath: string | null };
+        }
+      ).__mindmapSaveMock
+  );
+  expect(saveState).toMatchObject({
+    savedDefaultPath: "Project Plan.md",
+    savedPath: "/tmp/Project Plan.md"
+  });
+});
+
 test("new starts a fresh untitled mindmap", async ({ page }) => {
   await virtualRightRootInput(page).press("Enter");
   await nodeInput(page, "right/0").fill("Draft");
@@ -29,7 +61,7 @@ test("new starts a fresh untitled mindmap", async ({ page }) => {
   });
   await page.getByRole("button", { name: "New" }).click();
 
-  await expect(page.locator(".file-name")).toHaveText("untitled.md");
+  await expect(documentFileName(page)).toHaveValue("untitled.md");
   await expect(page.locator(".node-input")).toHaveCount(0);
   await expect(virtualRightRootInput(page)).toBeVisible();
   await expect(virtualLeftRootInput(page)).toBeVisible();
@@ -47,18 +79,18 @@ test("recent files remembers opened markdown and can reopen it", async ({
 
   await page.getByRole("button", { name: "Open" }).click();
 
-  await expect(page.locator(".file-name")).toHaveText("alpha.md");
+  await expect(documentFileName(page)).toHaveValue("alpha.md");
   await expect(nodeInput(page, "right/0")).toHaveValue("One");
 
   await page.getByRole("button", { name: "New" }).click();
-  await expect(page.locator(".file-name")).toHaveText("untitled.md");
+  await expect(documentFileName(page)).toHaveValue("untitled.md");
 
   await openRecentFiles(page);
   await expect(page.getByText("/tmp/alpha.md")).toBeVisible();
 
   await page.getByRole("button", { name: "Open alpha.md" }).click();
 
-  await expect(page.locator(".file-name")).toHaveText("alpha.md");
+  await expect(documentFileName(page)).toHaveValue("alpha.md");
   await expect(nodeInput(page, "right/0")).toHaveValue("One");
 
   await openRecentFiles(page);
@@ -100,7 +132,7 @@ test("workspace folder lists filters opens and creates markdown files", async ({
     .getByRole("button", { name: "Open workspace file projects/Roadmap.md" })
     .click();
 
-  await expect(page.locator(".file-name")).toHaveText("Roadmap.md");
+  await expect(documentFileName(page)).toHaveValue("Roadmap.md");
   await expect(nodeInput(page, "right/0")).toHaveValue("Milestone");
 
   await page.getByLabel("Search workspace files").fill("");
@@ -109,7 +141,7 @@ test("workspace folder lists filters opens and creates markdown files", async ({
   });
   await page.getByRole("button", { name: "New workspace file" }).click();
 
-  await expect(page.locator(".file-name")).toHaveText("Idea.md");
+  await expect(documentFileName(page)).toHaveValue("Idea.md");
   await expect(markdownOutput(page)).toHaveText("#\n");
   await expect(
     page.getByRole("button", { name: "Open workspace file Idea.md" })
@@ -117,7 +149,18 @@ test("workspace folder lists filters opens and creates markdown files", async ({
 });
 
 test("layout overview mirrors the visible mindmap", async ({ page }) => {
-  await expect(page.locator(".layout-overview")).toBeVisible();
+  const overview = page.locator(".layout-overview");
+  const overviewControls = page.locator(".layout-overview-controls");
+  const overviewMap = page.locator(".layout-overview-map");
+  const workspaceShell = page.locator(".workspace-shell");
+
+  await expect(overview).toBeVisible();
+  await expect
+    .poll(() => elementPositionWithin(overview, workspaceShell))
+    .toMatchObject({ top: 14, right: 14 });
+  await expect
+    .poll(() => elementVerticalRelation(overviewControls, overviewMap))
+    .toBeLessThanOrEqual(0);
   await expect(page.locator(".layout-overview-node")).toHaveCount(3);
   await expect(
     page.locator(".layout-overview-connector.virtual-connector")
@@ -338,7 +381,6 @@ test("Enter creates a sibling node and undo redo restores it", async ({ page }) 
   await nodeInput(page, "right/1").fill("B");
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n- B\n");
 
-  await openMoreActions(page);
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".node-input")).toHaveCount(2);
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n-\n");
@@ -517,7 +559,6 @@ test("Normalize reports when markdown is already canonical", async ({ page }) =>
   const node = nodeInput(page, "right/0");
   await node.fill("A");
 
-  await openMoreActions(page);
   await page.getByRole("button", { name: "Normalize" }).click();
 
   await expect(page.locator(".notice")).toContainText("이미 정규화된 Markdown입니다.");
@@ -539,90 +580,63 @@ test("parse errors offer auto normalize from the diagnostics screen", async ({
   await expect(markdownOutput(page)).toHaveText("# Broken\n\n- A\n");
 });
 
-test("zoom controls can zoom in and reset", async ({ page }) => {
-  await openMoreActions(page);
-  const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
-
-  await expect(resetZoomButton).toHaveText("100%");
-  await page.getByRole("button", { name: "Zoom in" }).click();
-  await expect(resetZoomButton).toHaveText("110%");
-  await page.getByRole("button", { name: "Reset zoom" }).click();
-  await expect(resetZoomButton).toHaveText("100%");
-});
-
-test("mouse wheel zooms the canvas in and out", async ({ page }) => {
-  await openMoreActions(page);
+test("layout overview displays zoom and pan, then resets the view", async ({
+  page
+}) => {
   const viewport = page.getByLabel("Mindmap canvas");
-  const resetZoomButton = page.getByRole("button", { name: "Reset zoom" });
+  const viewState = page.getByLabel("Canvas view state");
+  const resetViewButton = page.getByRole("button", {
+    name: "Reset canvas view"
+  });
+  const workspace = page.locator(".workspace");
+  const root = page.getByLabel("Root heading");
   const box = await viewport.boundingBox();
   expect(box).not.toBeNull();
+
+  await expect(page.locator(".layout-overview")).toBeVisible();
+  await expect(viewState).toHaveText("100% | X 0 Y 0");
+  await expect(resetViewButton).toBeVisible();
+  await expect
+    .poll(() => elementCenterOffset(root, viewport))
+    .toEqual({ x: 0, y: 0 });
 
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.wheel(0, -100);
-  await expect(resetZoomButton).toHaveText("110%");
+  await expect(viewState).toHaveText("110% | X 0 Y 0");
 
-  await page.mouse.wheel(0, 100);
-  await expect(resetZoomButton).toHaveText("100%");
-});
-
-test("canvas can pan by dragging and reset to center", async ({ page }) => {
-  const viewport = page.getByLabel("Mindmap canvas");
-  const workspace = page.locator(".workspace");
-  const box = await viewport.boundingBox();
-  expect(box).not.toBeNull();
   const startX = box!.x + 24;
   const startY = box!.y + 24;
-
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + 80, startY + 40);
   await page.mouse.up();
 
+  await expect(viewState).toHaveText("110% | X 80 Y 40");
   await expect
     .poll(() =>
       workspace.evaluate((element) => ({
+        zoom: getComputedStyle(element).getPropertyValue("--workspace-zoom").trim(),
         x: getComputedStyle(element).getPropertyValue("--workspace-pan-x").trim(),
         y: getComputedStyle(element).getPropertyValue("--workspace-pan-y").trim()
       }))
     )
-    .toEqual({ x: "80px", y: "40px" });
+    .toEqual({ zoom: "1.1", x: "80px", y: "40px" });
 
-  await openMoreActions(page);
-  await page.getByRole("button", { name: "Reset pan" }).click();
+  await resetViewButton.click();
 
+  await expect(viewState).toHaveText("100% | X 0 Y 0");
   await expect
     .poll(() =>
       workspace.evaluate((element) => ({
+        zoom: getComputedStyle(element).getPropertyValue("--workspace-zoom").trim(),
         x: getComputedStyle(element).getPropertyValue("--workspace-pan-x").trim(),
         y: getComputedStyle(element).getPropertyValue("--workspace-pan-y").trim()
       }))
     )
-    .toEqual({ x: "0px", y: "0px" });
-});
-
-test("pan controls display and nudge the workspace offset", async ({ page }) => {
-  await openMoreActions(page);
-  const workspace = page.locator(".workspace");
-  const panOffset = page.getByLabel("Pan offset");
-
-  await expect(panOffset).toHaveText("X 0 Y 0");
-  await page.getByRole("button", { name: "Pan right" }).click();
-  await page.getByRole("button", { name: "Pan down" }).click();
-
-  await expect(panOffset).toHaveText("X 8 Y 8");
+    .toEqual({ zoom: "1", x: "0px", y: "0px" });
   await expect
-    .poll(() =>
-      workspace.evaluate((element) => ({
-        x: getComputedStyle(element).getPropertyValue("--workspace-pan-x").trim(),
-        y: getComputedStyle(element).getPropertyValue("--workspace-pan-y").trim()
-      }))
-    )
-    .toEqual({ x: "8px", y: "8px" });
-
-  await page.getByRole("button", { name: "Pan left" }).click();
-  await page.getByRole("button", { name: "Pan up" }).click();
-
-  await expect(panOffset).toHaveText("X 0 Y 0");
+    .poll(() => elementCenterOffset(root, viewport))
+    .toEqual({ x: 0, y: 0 });
 });
 
 test("markdown panel starts left and can resize and dock by dragging", async ({
@@ -666,8 +680,24 @@ test("markdown panel starts left and can resize and dock by dragging", async ({
   expect(rightLayout).not.toBeNull();
   expect(rightLayout!.panelLeft).toBeGreaterThanOrEqual(rightLayout!.canvasRight - 2);
 
-  await dragLocatorByAndExpectDockPreview(page, dockHandle, -520, 0, "bottom");
+  await dragLocatorByAndExpectDockPreview(page, dockHandle, -520, 520, "bottom");
   await expect(layout).toHaveClass(/markdown-bottom/);
+  await expect(resizeHandle).toHaveAttribute("aria-orientation", "horizontal");
+
+  await dragLocatorByAndExpectDockPreview(page, dockHandle, 0, -520, "top");
+  await expect(layout).toHaveClass(/markdown-top/);
+  await expect(resizeHandle).toHaveAttribute("aria-orientation", "horizontal");
+
+  const topPanelBox = await panel.boundingBox();
+  const topCanvasBox = await canvas.boundingBox();
+  expect(topPanelBox).not.toBeNull();
+  expect(topCanvasBox).not.toBeNull();
+  expect(Math.round(topPanelBox!.y + topPanelBox!.height)).toBeLessThanOrEqual(
+    Math.round(topCanvasBox!.y) + 2
+  );
+
+  await dragLocatorBy(page, resizeHandle, 0, 80);
+  await expect(resizeHandle).toHaveAttribute("aria-valuenow", "580");
 
   await hideButton.click();
   await expect(layout).toHaveClass(/markdown-hidden/);
@@ -703,10 +733,11 @@ test("node search highlights matches and jumps between nodes", async ({ page }) 
   await expect(nodeInput(page, "right/1")).toHaveClass(/current-search-match/);
   await expect(nodeInput(page, "right/1")).toHaveAttribute("readonly", "");
   await expect(elementBorderColor(nodeInput(page, "right/1"))).resolves.toBe(
-    "rgb(77, 136, 255)"
+    "rgb(37, 99, 235)"
   );
+  await expect(elementBorderWidth(nodeInput(page, "right/1"))).resolves.toBe(2);
   await expect(elementBoxShadow(nodeInput(page, "right/1"))).resolves.toContain(
-    "rgb(77, 136, 255) 0px 0px 0px 5px"
+    "rgba(37, 99, 235, 0.56) 0px 0px 0px 7px"
   );
 
   await page.getByRole("button", { name: "Previous search match" }).click();
@@ -715,10 +746,11 @@ test("node search highlights matches and jumps between nodes", async ({ page }) 
   await expect(nodeInput(page, "right/0")).toHaveClass(/selected/);
   await expect(nodeInput(page, "right/0")).toHaveClass(/current-search-match/);
   await expect(elementBorderColor(nodeInput(page, "right/0"))).resolves.toBe(
-    "rgb(77, 136, 255)"
+    "rgb(37, 99, 235)"
   );
+  await expect(elementBorderWidth(nodeInput(page, "right/0"))).resolves.toBe(2);
   await expect(elementBoxShadow(nodeInput(page, "right/0"))).resolves.toContain(
-    "rgb(77, 136, 255) 0px 0px 0px 5px"
+    "rgba(37, 99, 235, 0.56) 0px 0px 0px 7px"
   );
 });
 
@@ -762,6 +794,23 @@ test("keyboard shortcut help opens from the toolbar and closes with Escape", asy
 
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+});
+
+test("toolbar shows secondary actions without a more menu", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "More actions" })).toHaveCount(0);
+  await expect(page.getByRole("button", { exact: true, name: "Save As" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { exact: true, name: "Normalize" })
+  ).toBeVisible();
+  await expect(page.getByRole("button", { exact: true, name: "Undo" })).toBeVisible();
+  await expect(page.getByRole("button", { exact: true, name: "Redo" })).toBeVisible();
+  await expect(page.getByRole("button", { exact: true, name: "Copy" })).toHaveCount(
+    0
+  );
+  await expect(page.getByRole("button", { exact: true, name: "Cut" })).toHaveCount(0);
+  await expect(page.getByRole("button", { exact: true, name: "Paste" })).toHaveCount(
+    0
+  );
 });
 
 test("command palette opens from shortcut and focuses node search", async ({
@@ -837,12 +886,19 @@ test("selection and editing modes have distinct visual states", async ({ page })
   await expect(node).toHaveAttribute("readonly", "");
   await expect(node).toHaveClass(/selected/);
   await expect(node).not.toHaveClass(/editing/);
+  await expect.poll(() => elementOutlineStyle(node)).toBe("solid");
+  await expect.poll(() => elementBorderWidth(node)).toBe(2);
+  await expect.poll(() => elementBorderColor(node)).toBe("rgb(37, 99, 235)");
+  await expect.poll(() => elementBoxShadow(node)).toContain("37, 99, 235");
 
   await node.press("Enter");
 
   await expect(node).not.toHaveAttribute("readonly", "");
   await expect(node).toHaveClass(/selected/);
   await expect(node).toHaveClass(/editing/);
+  await expect.poll(() => elementOutlineStyle(node)).toBe("solid");
+  await expect.poll(() => elementBorderWidth(node)).toBe(2);
+  await expect.poll(() => elementBoxShadow(node)).toContain("21, 150, 111");
 });
 
 test("selection mode renders inline markdown while editing keeps raw text", async ({
@@ -891,7 +947,8 @@ test("node levels have distinct visual styles", async ({ page }) => {
   const level4 = nodeInput(page, "right/0/0/0/0");
   await level4.fill("Level 4");
   await level4.press("Escape");
-  await page.getByLabel("Root heading").click();
+  const root = page.getByLabel("Root heading");
+  await root.click();
 
   await expect(level1).toHaveClass(/node-level-1/);
   await expect(level2).toHaveClass(/node-level-2/);
@@ -908,6 +965,11 @@ test("node levels have distinct visual styles", async ({ page }) => {
   expect(styles.every(({ backgroundImage }) => backgroundImage === "none")).toBe(true);
   expect(new Set(styles.map(({ backgroundColor }) => backgroundColor)).size).toBe(4);
   expect(new Set(styles.map(({ borderColor }) => borderColor)).size).toBe(4);
+
+  expect(await elementFontSize(root)).toBeGreaterThan(await elementFontSize(level1));
+  expect(await elementBorderWidth(root)).toBeGreaterThan(
+    await elementBorderWidth(level1)
+  );
 
   const previewStyles = await Promise.all(
     ["right/0", "right/0/0", "right/0/0/0", "right/0/0/0/0"].map(
@@ -1851,6 +1913,42 @@ test("third child connector curves do not loop backward", async ({ page }) => {
   }
 });
 
+test("transient third child connector extends the shared trunk", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+  await parent.fill("Parent");
+  await parent.press("Tab");
+
+  let child = nodeInput(page, "right/0/0");
+  await child.fill("Child 1");
+  await child.press("Enter");
+
+  child = nodeInput(page, "right/0/1");
+  await child.fill("Child 2");
+  await child.press("Enter");
+
+  const connectorPaths = await page.evaluate(() => ({
+    solid:
+      document
+        .querySelector<SVGPathElement>(".connector-layer path.connector-level-2")
+        ?.getAttribute("d") ?? null,
+    transient:
+      document
+        .querySelector<SVGPathElement>(".connector-layer path.transient-connector")
+        ?.getAttribute("d") ?? null
+  }));
+
+  expect(connectorPaths.solid).not.toBeNull();
+  expect(connectorPaths.transient).not.toBeNull();
+
+  const solidTrunkX = cubicSegmentsFromPath(connectorPaths.solid!)[0]?.endX;
+  const transientMoves = moveCommandsFromPath(connectorPaths.transient!);
+
+  expect(solidTrunkX).toBeDefined();
+  expect(transientMoves.length).toBeGreaterThan(0);
+  expect(transientMoves[0].x).toBeCloseTo(solidTrunkX!, 1);
+  expect(connectorPaths.transient).toContain(" L ");
+});
+
 test("IME composing Enter does not create a sibling node", async ({ page }) => {
   await virtualRightRootInput(page).focus();
   const firstNode = nodeInput(page, "right/0");
@@ -2121,6 +2219,11 @@ type CubicSegment = {
   control2X: number;
 };
 
+type MoveCommand = {
+  x: number;
+  y: number;
+};
+
 function cubicSegmentsFromPath(d: string): CubicSegment[] {
   const tokens = d.match(/[A-Za-z]|-?\d+(?:\.\d+)?/g) ?? [];
   const segments: CubicSegment[] = [];
@@ -2158,6 +2261,25 @@ function cubicSegmentsFromPath(d: string): CubicSegment[] {
   return segments;
 }
 
+function moveCommandsFromPath(d: string): MoveCommand[] {
+  const tokens = d.match(/[A-Za-z]|-?\d+(?:\.\d+)?/g) ?? [];
+  const moves: MoveCommand[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index] !== "M") {
+      continue;
+    }
+
+    moves.push({
+      x: Number.parseFloat(tokens[index + 1]),
+      y: Number.parseFloat(tokens[index + 2])
+    });
+    index += 2;
+  }
+
+  return moves;
+}
+
 async function sideBySideLayout(
   panel: ReturnType<Page["locator"]>,
   canvas: ReturnType<Page["locator"]>
@@ -2179,6 +2301,58 @@ async function sideBySideLayout(
     canvasLeft: Math.round(canvasBox.x),
     canvasRight: Math.round(canvasBox.x + canvasBox.width)
   };
+}
+
+async function elementCenterOffset(
+  locator: ReturnType<Page["locator"]>,
+  container: ReturnType<Page["locator"]>
+): Promise<{ x: number; y: number }> {
+  const box = await locator.boundingBox();
+  const containerBox = await container.boundingBox();
+  expect(box).not.toBeNull();
+  expect(containerBox).not.toBeNull();
+
+  return {
+    x: Math.round(
+      box!.x + box!.width / 2 - (containerBox!.x + containerBox!.width / 2)
+    ),
+    y: Math.round(
+      box!.y + box!.height / 2 - (containerBox!.y + containerBox!.height / 2)
+    )
+  };
+}
+
+async function elementPositionWithin(
+  locator: ReturnType<Page["locator"]>,
+  container: ReturnType<Page["locator"]>
+): Promise<{ top: number; right: number; bottom: number; left: number }> {
+  const box = await locator.boundingBox();
+  const containerBox = await container.boundingBox();
+  expect(box).not.toBeNull();
+  expect(containerBox).not.toBeNull();
+
+  return {
+    top: Math.round(box!.y - containerBox!.y),
+    right: Math.round(
+      containerBox!.x + containerBox!.width - (box!.x + box!.width)
+    ),
+    bottom: Math.round(
+      containerBox!.y + containerBox!.height - (box!.y + box!.height)
+    ),
+    left: Math.round(box!.x - containerBox!.x)
+  };
+}
+
+async function elementVerticalRelation(
+  upper: ReturnType<Page["locator"]>,
+  lower: ReturnType<Page["locator"]>
+): Promise<number> {
+  const upperBox = await upper.boundingBox();
+  const lowerBox = await lower.boundingBox();
+  expect(upperBox).not.toBeNull();
+  expect(lowerBox).not.toBeNull();
+
+  return Math.round(upperBox!.y + upperBox!.height - lowerBox!.y);
 }
 
 async function dragLocatorBy(
@@ -2203,7 +2377,7 @@ async function dragLocatorByAndExpectDockPreview(
   locator: ReturnType<Page["locator"]>,
   deltaX: number,
   deltaY: number,
-  target: "bottom" | "left" | "right"
+  target: "bottom" | "left" | "right" | "top"
 ): Promise<void> {
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
@@ -2221,6 +2395,10 @@ async function dragLocatorByAndExpectDockPreview(
 
 function markdownOutput(page: Page) {
   return page.locator(".markdown-panel pre");
+}
+
+function documentFileName(page: Page) {
+  return page.getByLabel("Document file name");
 }
 
 function nodeInput(page: Page, path: string) {
@@ -2245,14 +2423,6 @@ function virtualLeftRootInput(page: Page) {
 
 function virtualRightRootInput(page: Page) {
   return virtualRootInput(page, "right");
-}
-
-async function openMoreActions(page: Page): Promise<void> {
-  const moreMenu = page.locator(".more-menu");
-  const isOpen = await moreMenu.evaluate((element) => element.hasAttribute("open"));
-  if (!isOpen) {
-    await page.getByRole("button", { name: "More actions" }).click();
-  }
 }
 
 async function openRecentFiles(page: Page): Promise<void> {
@@ -2317,6 +2487,94 @@ async function mockTauriOpenMarkdown(page: Page, contents: string): Promise<void
       }
     };
   }, contents);
+  await page.reload();
+  await expect(page.getByText("clean")).toBeVisible();
+}
+
+async function mockTauriSaveMarkdown(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    let callbackId = 0;
+    const callbacks = new Map<number, unknown>();
+    const sourceByPath: Record<string, string> = {};
+
+    const snapshotFor = (path: string) => {
+      const contents = sourceByPath[path] ?? "#\n";
+      return {
+        path,
+        name: path.split(/[\\/]/).pop() ?? path,
+        contents,
+        hash: `mock-hash-${path}-${contents.length}`,
+        mtimeMs: contents.length,
+        size: contents.length
+      };
+    };
+
+    (
+      window as Window & {
+        __mindmapSaveMock?: { savedDefaultPath: string | null; savedPath: string | null };
+      }
+    ).__mindmapSaveMock = {
+      savedDefaultPath: null,
+      savedPath: null
+    };
+
+    window.__TAURI_INTERNALS__ = {
+      transformCallback(callback: unknown) {
+        callbackId += 1;
+        callbacks.set(callbackId, callback);
+        return callbackId;
+      },
+      unregisterCallback(id: number) {
+        callbacks.delete(id);
+      },
+      async invoke(command: string, args?: Record<string, unknown>) {
+        if (command === "plugin:dialog|save") {
+          const options = args?.options as { defaultPath?: string } | undefined;
+          const defaultPath = options?.defaultPath ?? "untitled.md";
+          const fileName = defaultPath.split(/[\\/]/).filter(Boolean).pop() ?? defaultPath;
+          const path = `/tmp/${fileName}`;
+          (
+            window as Window & {
+              __mindmapSaveMock?: {
+                savedDefaultPath: string | null;
+                savedPath: string | null;
+              };
+            }
+          ).__mindmapSaveMock = {
+            savedDefaultPath: defaultPath,
+            savedPath: path
+          };
+          return path;
+        }
+
+        if (command === "write_markdown_file_atomic") {
+          const path = String(args?.path ?? "");
+          sourceByPath[path] = String(args?.contents ?? "");
+          return snapshotFor(path);
+        }
+
+        if (
+          command === "read_app_state" ||
+          command === "write_app_state" ||
+          command === "watch_markdown_file" ||
+          command === "unwatch_markdown_file"
+        ) {
+          return null;
+        }
+
+        if (command === "plugin:event|listen") {
+          return "mock-event-listener";
+        }
+
+        return null;
+      }
+    };
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener() {
+        return undefined;
+      }
+    };
+  });
   await page.reload();
   await expect(page.getByText("clean")).toBeVisible();
 }
@@ -2686,8 +2944,20 @@ async function elementBorderColor(
   return locator.evaluate((element) => getComputedStyle(element).borderColor);
 }
 
+async function elementBorderWidth(locator: ReturnType<Page["locator"]>): Promise<number> {
+  return locator.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).borderTopWidth)
+  );
+}
+
 async function elementColor(locator: ReturnType<Page["locator"]>): Promise<string> {
   return locator.evaluate((element) => getComputedStyle(element).color);
+}
+
+async function elementFontSize(locator: ReturnType<Page["locator"]>): Promise<number> {
+  return locator.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).fontSize)
+  );
 }
 
 async function elementFontWeight(

@@ -86,6 +86,22 @@ describe("view state", () => {
     });
   });
 
+  it("loads top markdown panel position from stored state", () => {
+    const loaded = parseViewState(
+      JSON.stringify({
+        selectedNodePath: "right/0",
+        markdownPanel: { position: "top", size: 360 }
+      }),
+      "right/0"
+    );
+
+    expect(loaded.markdownPanel).toEqual({
+      position: "top",
+      size: 360,
+      hidden: false
+    });
+  });
+
   it("loads multi selection and collapsed paths from stored state", () => {
     const loaded = parseViewState(
       JSON.stringify({

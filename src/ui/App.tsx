@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent as ReactChangeEvent,
   type CSSProperties,
   type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -78,7 +79,6 @@ import {
   maxMarkdownPanelSize,
   minMarkdownPanelSize,
   panBy,
-  panNudgeStep,
   parseViewState,
   resetPan,
   resetZoom,
@@ -131,6 +131,7 @@ import { getNodeInputWidth, getRootInputWidth } from "./nodeSizing";
 
 const autosaveDelayMs = 700;
 const externalPollMs = 2500;
+const defaultDraftFileName = "untitled.md";
 const nodeDragStartThresholdPx = 6;
 const nodeDropSnapDistancePx = 96;
 const nodeDropInsideSnapDistancePx = 176;
@@ -304,7 +305,7 @@ const keyboardShortcutGroups: KeyboardShortcutGroup[] = [
       { keys: "Normalize", action: "Markdown 정규화" },
       { keys: "Cmd/Ctrl++", action: "확대" },
       { keys: "Cmd/Ctrl+-", action: "축소" },
-      { keys: "Cmd/Ctrl+0", action: "100%" },
+      { keys: "Cmd/Ctrl+0", action: "뷰 리셋" },
       { keys: "노드 드래그", action: "노드 재배치" },
       { keys: "마우스 휠", action: "확대/축소" },
       { keys: "? 또는 Cmd/Ctrl+/", action: "키바인딩 도움말" }
@@ -324,6 +325,7 @@ export function App() {
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [draftFileName, setDraftFileName] = useState(defaultDraftFileName);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() =>
@@ -372,7 +374,7 @@ export function App() {
   );
   const mindmap = parseResult.ok ? parseResult.mindmap : null;
   const nativeAvailable = isNativeAvailable();
-  const fileName = activeDocument.file?.name ?? "untitled.md";
+  const fileName = activeDocument.file?.name ?? draftFileName;
   const status = statusLabel(activeDocument, nativeAvailable);
   const selectedNodePaths = useMemo(
     () => selectionPathsForMindmap(mindmap, viewState),
@@ -540,6 +542,7 @@ export function App() {
       setSearchQuery("");
       setSearchCursor(0);
       setNotice(`열림: ${snapshot.name}`);
+      setDraftFileName(snapshot.name);
       rememberFileSnapshot(snapshot);
       setViewState(nextViewState);
     },
@@ -808,6 +811,42 @@ export function App() {
     );
   }, []);
 
+  const handleDraftFileNameChange = useCallback(
+    (event: ReactChangeEvent<HTMLInputElement>) => {
+      if (activeDocument.file) {
+        return;
+      }
+
+      setDraftFileName(event.currentTarget.value);
+    },
+    [activeDocument.file]
+  );
+
+  const commitDraftFileName = useCallback(() => {
+    if (!activeDocument.file) {
+      setDraftFileName((current) => normalizeDraftFileName(current));
+    }
+  }, [activeDocument.file]);
+
+  const handleDraftFileNameKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (activeDocument.file) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitDraftFileName();
+        event.currentTarget.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setDraftFileName(defaultDraftFileName);
+        event.currentTarget.blur();
+      }
+    },
+    [activeDocument.file, commitDraftFileName]
+  );
+
   const saveCurrent = useCallback(
     async (path: string) => {
       const sourceToSave = activeDocument.source;
@@ -835,6 +874,7 @@ export function App() {
           return replacePresent(current, nextDocument, `Saved ${snapshot.name}`);
         });
         setNotice(`저장됨: ${snapshot.name}`);
+        setDraftFileName(snapshot.name);
         rememberFileSnapshot(snapshot);
         if (workspaceDirectory) {
           void loadWorkspaceFiles(workspaceDirectory);
@@ -864,6 +904,7 @@ export function App() {
     }
 
     setHistory(createHistory(createUntitledDocument(), "New mindmap"));
+    setDraftFileName(defaultDraftFileName);
     setViewState(createDefaultViewState());
     setDiffFiles(null);
     setSearchQuery("");
@@ -1033,11 +1074,13 @@ export function App() {
       return;
     }
 
-    const path = await pickSaveMarkdownPath("untitled.md");
+    const draftSaveName = normalizeDraftFileName(draftFileName);
+    setDraftFileName(draftSaveName);
+    const path = await pickSaveMarkdownPath(draftSaveName);
     if (path) {
       await saveCurrent(path);
     }
-  }, [activeDocument.file, nativeAvailable, saveCurrent]);
+  }, [activeDocument.file, draftFileName, nativeAvailable, saveCurrent]);
 
   const handleSaveAs = useCallback(async () => {
     if (!nativeAvailable) {
@@ -1045,11 +1088,13 @@ export function App() {
       return;
     }
 
-    const path = await pickSaveMarkdownPath(activeDocument.file?.path ?? "untitled.md");
+    const draftSaveName = normalizeDraftFileName(draftFileName);
+    const path = await pickSaveMarkdownPath(activeDocument.file?.path ?? draftSaveName);
     if (path) {
+      setDraftFileName(draftSaveName);
       await saveCurrent(path);
     }
-  }, [activeDocument.file?.path, nativeAvailable, saveCurrent]);
+  }, [activeDocument.file?.path, draftFileName, nativeAvailable, saveCurrent]);
 
   const handleNormalizeMarkdown = useCallback(() => {
     const result = normalizeMindmapSource(activeDocument.source);
@@ -1098,24 +1143,11 @@ export function App() {
     }));
   }, []);
 
-  const handleResetZoom = useCallback(() => {
+  const handleResetView = useCallback(() => {
     setViewState((current) => ({
       ...current,
-      zoom: resetZoom()
-    }));
-  }, []);
-
-  const handleResetPan = useCallback(() => {
-    setViewState((current) => ({
-      ...current,
+      zoom: resetZoom(),
       pan: resetPan()
-    }));
-  }, []);
-
-  const handlePanNudge = useCallback((deltaX: number, deltaY: number) => {
-    setViewState((current) => ({
-      ...current,
-      pan: panBy(current.pan, deltaX, deltaY)
     }));
   }, []);
 
@@ -1178,6 +1210,8 @@ export function App() {
       const delta =
         resize.position === "bottom"
           ? resize.startY - event.clientY
+          : resize.position === "top"
+            ? event.clientY - resize.startY
           : resize.position === "left"
             ? event.clientX - resize.startX
             : resize.startX - event.clientX;
@@ -1209,12 +1243,14 @@ export function App() {
 
       if (
         (position === "bottom" && event.key === "ArrowUp") ||
+        (position === "top" && event.key === "ArrowDown") ||
         (position === "left" && event.key === "ArrowRight") ||
         (position === "right" && event.key === "ArrowLeft")
       ) {
         nextSize = size + markdownPanelSizeStep;
       } else if (
         (position === "bottom" && event.key === "ArrowDown") ||
+        (position === "top" && event.key === "ArrowUp") ||
         (position === "left" && event.key === "ArrowLeft") ||
         (position === "right" && event.key === "ArrowRight")
       ) {
@@ -1271,6 +1307,7 @@ export function App() {
       setMarkdownPanelDockTarget(
         markdownPanelPositionForPointer(
           event.clientX,
+          event.clientY,
           layout?.getBoundingClientRect() ?? null
         )
       );
@@ -1300,6 +1337,7 @@ export function App() {
       const layout = event.currentTarget.closest<HTMLElement>(".document-layout");
       const nextPosition = markdownPanelPositionForPointer(
         event.clientX,
+        event.clientY,
         layout?.getBoundingClientRect() ?? null
       );
       handleMarkdownPanelPosition(nextPosition);
@@ -1330,6 +1368,8 @@ export function App() {
           ? "left"
           : event.key === "ArrowRight"
             ? "right"
+            : event.key === "ArrowUp"
+              ? "top"
             : event.key === "ArrowDown"
               ? "bottom"
               : null;
@@ -1960,19 +2000,12 @@ export function App() {
         run: handleZoomOut
       },
       {
-        id: "reset-zoom",
-        title: "Reset zoom",
-        detail: "확대율 100%",
+        id: "reset-view",
+        title: "Reset view",
+        detail: "확대율 100%, pan 위치 초기화",
         shortcut: "Cmd/Ctrl+0",
-        keywords: ["view", "zoom", "reset", "초기화"],
-        run: handleResetZoom
-      },
-      {
-        id: "center-pan",
-        title: "Center canvas",
-        detail: "pan 위치 초기화",
-        keywords: ["view", "pan", "center", "중앙"],
-        run: handleResetPan
+        keywords: ["view", "zoom", "pan", "reset", "center", "초기화", "중앙"],
+        run: handleResetView
       },
       {
         id: "keyboard-shortcuts",
@@ -2002,8 +2035,7 @@ export function App() {
       handlePasteSubtree,
       handleRedo,
       handleRefreshWorkspace,
-      handleResetPan,
-      handleResetZoom,
+      handleResetView,
       handleSave,
       handleSaveAs,
       handleToggleSelectedNodeCollapse,
@@ -2405,6 +2437,10 @@ export function App() {
         return;
       }
 
+      if (isTextEntryTarget(event.target) && isTextEntryKeyEvent(event)) {
+        return;
+      }
+
       if ((event.metaKey || event.ctrlKey) && key === "k") {
         event.preventDefault();
         openCommandPalette();
@@ -2450,7 +2486,7 @@ export function App() {
         handleZoomOut();
       } else if ((event.metaKey || event.ctrlKey) && event.key === "0") {
         event.preventDefault();
-        handleResetZoom();
+        handleResetView();
       } else if (!editing && (event.metaKey || event.ctrlKey) && key === "c") {
         event.preventDefault();
         void handleCopySubtree();
@@ -2599,7 +2635,7 @@ export function App() {
     handleOpen,
     handlePasteSubtree,
     handleRedo,
-    handleResetZoom,
+    handleResetView,
     handleSave,
     handleUndo,
     handleZoomIn,
@@ -2778,7 +2814,20 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <div className="file-name">{fileName}</div>
+          <input
+            className="file-name"
+            aria-label="Document file name"
+            value={fileName}
+            readOnly={activeDocument.file !== null}
+            title={
+              activeDocument.file?.path ??
+              "저장 전에 사용할 Markdown 파일 이름을 입력하세요."
+            }
+            spellCheck={false}
+            onChange={handleDraftFileNameChange}
+            onBlur={commitDraftFileName}
+            onKeyDown={handleDraftFileNameKeyDown}
+          />
           <div className={`status ${status.kind}`}>{status.text}</div>
         </div>
         <div className="toolbar">
@@ -2827,6 +2876,18 @@ export function App() {
           </details>
           <button type="button" onClick={handleSave}>
             Save
+          </button>
+          <button type="button" onClick={handleSaveAs}>
+            Save As
+          </button>
+          <button type="button" onClick={handleNormalizeMarkdown}>
+            Normalize
+          </button>
+          <button type="button" onClick={handleUndo} disabled={!canUndo(history)}>
+            Undo
+          </button>
+          <button type="button" onClick={handleRedo} disabled={!canRedo(history)}>
+            Redo
           </button>
           <div className="search-controls" role="search" aria-label="Node search">
             <input
@@ -2889,126 +2950,6 @@ export function App() {
           >
             Cmd
           </button>
-          <details className="more-menu">
-            <summary role="button" aria-label="More actions" title="More actions">
-              More
-            </summary>
-            <div className="more-menu-panel" role="group" aria-label="More actions menu">
-              <div className="more-menu-section">
-                <button type="button" onClick={handleSaveAs}>
-                  Save As
-                </button>
-                <button type="button" onClick={handleNormalizeMarkdown}>
-                  Normalize
-                </button>
-              </div>
-              <div className="more-menu-section">
-                <button type="button" onClick={handleUndo} disabled={!canUndo(history)}>
-                  Undo
-                </button>
-                <button type="button" onClick={handleRedo} disabled={!canRedo(history)}>
-                  Redo
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopySubtree}
-                  disabled={!mindmap || selectedClipboardNodes.length === 0}
-                >
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCutSubtree}
-                  disabled={!mindmap || selectedClipboardNodes.length === 0}
-                >
-                  Cut
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePasteSubtree}
-                  disabled={!mindmap || !selectedDocumentNode}
-                >
-                  Paste
-                </button>
-              </div>
-              <div className="zoom-controls" aria-label="Zoom controls">
-                <button
-                  type="button"
-                  aria-label="Zoom out"
-                  title="Zoom out"
-                  onClick={handleZoomOut}
-                >
-                  -
-                </button>
-                <button
-                  type="button"
-                  aria-label="Reset zoom"
-                  title="Reset zoom"
-                  onClick={handleResetZoom}
-                >
-                  {formatZoom(viewState.zoom)}
-                </button>
-                <button
-                  type="button"
-                  aria-label="Zoom in"
-                  title="Zoom in"
-                  onClick={handleZoomIn}
-                >
-                  +
-                </button>
-              </div>
-              <div className="pan-controls" aria-label="Pan controls">
-                <button
-                  type="button"
-                  className="pan-up"
-                  aria-label="Pan up"
-                  title="Pan up"
-                  onClick={() => handlePanNudge(0, -panNudgeStep)}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  className="pan-left"
-                  aria-label="Pan left"
-                  title="Pan left"
-                  onClick={() => handlePanNudge(-panNudgeStep, 0)}
-                >
-                  ←
-                </button>
-                <output className="pan-readout" aria-label="Pan offset">
-                  {formatPan(viewState.pan)}
-                </output>
-                <button
-                  type="button"
-                  className="pan-right"
-                  aria-label="Pan right"
-                  title="Pan right"
-                  onClick={() => handlePanNudge(panNudgeStep, 0)}
-                >
-                  →
-                </button>
-                <button
-                  type="button"
-                  className="pan-down"
-                  aria-label="Pan down"
-                  title="Pan down"
-                  onClick={() => handlePanNudge(0, panNudgeStep)}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  className="pan-reset"
-                  aria-label="Reset pan"
-                  title="Reset pan"
-                  onClick={handleResetPan}
-                >
-                  Center
-                </button>
-              </div>
-            </div>
-          </details>
         </div>
       </header>
 
@@ -3283,7 +3224,13 @@ export function App() {
                   </aside>
                 </section>
               </section>
-              {layoutOverview && <LayoutOverview overview={layoutOverview} />}
+              {layoutOverview && (
+                <LayoutOverview
+                  overview={layoutOverview}
+                  viewStateText={`${formatZoom(viewState.zoom)} | ${formatPan(viewState.pan)}`}
+                  onResetView={handleResetView}
+                />
+              )}
             </section>
 
             {markdownPanelDockTarget && (
@@ -3314,7 +3261,8 @@ export function App() {
                   role="separator"
                   aria-label="Resize Markdown panel"
                   aria-orientation={
-                    viewState.markdownPanel.position === "bottom"
+                    viewState.markdownPanel.position === "bottom" ||
+                    viewState.markdownPanel.position === "top"
                       ? "horizontal"
                       : "vertical"
                   }
@@ -3589,51 +3537,75 @@ function CommandPaletteModal({
   );
 }
 
-function LayoutOverview({ overview }: { overview: LayoutOverviewModel }) {
+function LayoutOverview({
+  overview,
+  viewStateText,
+  onResetView
+}: {
+  overview: LayoutOverviewModel;
+  viewStateText: string;
+  onResetView: () => void;
+}) {
   return (
     <aside className="layout-overview" aria-label="Layout overview">
-      <svg viewBox={overview.viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        {overview.connectors.map((connector) => (
-          <path
-            key={connector.id}
-            className={classNames(
-              "layout-overview-connector",
-              connector.levelClass,
-              connector.virtual && "virtual-connector",
-              connector.transient && "transient-connector"
-            )}
-            d={connector.d}
-          />
-        ))}
-        {overview.nodes.map((node) => (
-          <rect
-            key={node.path}
-            className={classNames(
-              "layout-overview-node",
-              node.levelClass,
-              node.root && "layout-overview-root",
-              node.virtual && "layout-overview-virtual",
-              node.transient && "layout-overview-transient",
-              node.selected && "layout-overview-selected"
-            )}
-            x={node.x}
-            y={node.y}
-            width={node.width}
-            height={node.height}
-            rx={4}
-          />
-        ))}
-        {overview.viewport && (
-          <rect
-            className="layout-overview-viewport"
-            x={overview.viewport.x}
-            y={overview.viewport.y}
-            width={overview.viewport.width}
-            height={overview.viewport.height}
-            rx={8}
-          />
-        )}
-      </svg>
+      <div className="layout-overview-controls">
+        <output className="layout-overview-readout" aria-label="Canvas view state">
+          {viewStateText}
+        </output>
+        <button
+          type="button"
+          className="layout-overview-reset"
+          aria-label="Reset canvas view"
+          title="Reset canvas view"
+          onClick={onResetView}
+        >
+          Reset
+        </button>
+      </div>
+      <div className="layout-overview-map">
+        <svg viewBox={overview.viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          {overview.connectors.map((connector) => (
+            <path
+              key={connector.id}
+              className={classNames(
+                "layout-overview-connector",
+                connector.levelClass,
+                connector.virtual && "virtual-connector",
+                connector.transient && "transient-connector"
+              )}
+              d={connector.d}
+            />
+          ))}
+          {overview.nodes.map((node) => (
+            <rect
+              key={node.path}
+              className={classNames(
+                "layout-overview-node",
+                node.levelClass,
+                node.root && "layout-overview-root",
+                node.virtual && "layout-overview-virtual",
+                node.transient && "layout-overview-transient",
+                node.selected && "layout-overview-selected"
+              )}
+              x={node.x}
+              y={node.y}
+              width={node.width}
+              height={node.height}
+              rx={4}
+            />
+          ))}
+          {overview.viewport && (
+            <rect
+              className="layout-overview-viewport"
+              x={overview.viewport.x}
+              y={overview.viewport.y}
+              width={overview.viewport.width}
+              height={overview.viewport.height}
+              rx={8}
+            />
+          )}
+        </svg>
+      </div>
     </aside>
   );
 }
@@ -4228,6 +4200,7 @@ function nodeLevelFromPath(path: string): number {
 
 function markdownPanelPositionForPointer(
   clientX: number,
+  clientY: number,
   layoutRect: DOMRect | null
 ): MarkdownPanelPosition {
   if (!layoutRect) {
@@ -4241,6 +4214,15 @@ function markdownPanelPositionForPointer(
 
   if (clientX >= layoutRect.right - sideBand) {
     return "right";
+  }
+
+  const verticalBand = Math.max(120, layoutRect.height * 0.24);
+  if (clientY <= layoutRect.top + verticalBand) {
+    return "top";
+  }
+
+  if (clientY >= layoutRect.bottom - verticalBand) {
+    return "bottom";
   }
 
   return "bottom";
@@ -5499,18 +5481,40 @@ function buildConnectorPaths(
       );
 
       if (solidAnchors.length > 0) {
+        const sharedGeometry = connectorGeometry(
+          source,
+          directionalAnchors.map((child) => child.anchor),
+          direction
+        );
+        const useSharedTrunk = directionalAnchors.length > 1;
+
         paths.push({
           id: `${parentPath}->${direction}-children`,
           levelClass: connectorLevelClass(solidAnchors[0].node.path),
           d: connectorPathToChildren(
             source,
             solidAnchors.map((child) => child.anchor),
-            direction
+            direction,
+            useSharedTrunk ? sharedGeometry : undefined,
+            useSharedTrunk
           )
         });
-      }
 
-      if (temporaryAnchors.length > 0) {
+        if (temporaryAnchors.length > 0) {
+          paths.push({
+            id: `${parentPath}->${direction}-temporary-children`,
+            d: temporaryConnectorPathToChildren(
+              source,
+              solidAnchors.map((child) => child.anchor),
+              temporaryAnchors.map((child) => child.anchor),
+              direction,
+              sharedGeometry
+            ),
+            virtual: temporaryAnchors.every((child) => child.virtual === true),
+            transient: temporaryAnchors.some((child) => child.transient === true)
+          });
+        }
+      } else if (temporaryAnchors.length > 0) {
         paths.push({
           id: `${parentPath}->${direction}-temporary-children`,
           d: connectorPathToChildren(
@@ -5669,38 +5673,130 @@ function connectorAnchorElement(element: HTMLElement, role: "source" | "target")
 function connectorPathToChildren(
   source: Point,
   targets: Point[],
-  direction: Direction
+  direction: Direction,
+  geometry?: ConnectorGeometry,
+  forceTrunk = false
 ): string {
   if (targets.length === 0) {
     return "";
   }
 
-  if (targets.length === 1) {
+  if (targets.length === 1 && !forceTrunk) {
     return connectorPathBetween(source, targets[0], direction);
   }
 
-  const sortedTargets = [...targets].sort((left, right) => left.y - right.y);
-  const trunkX = branchTrunkX(source, sortedTargets, direction);
-  const minY = sortedTargets[0].y;
-  const maxY = sortedTargets[sortedTargets.length - 1].y;
-  const branchGap = Math.min(
-    ...sortedTargets.map((target) => Math.abs(target.x - trunkX))
+  const resolvedGeometry = geometry ?? connectorGeometry(source, targets, direction);
+  const sortedTargets = sortPointsByY(targets);
+  const branchStartYs = sortedTargets.map((target) =>
+    branchStartY(target, source.y, resolvedGeometry.cornerRadius)
   );
-  const cornerRadius = Math.min(18, Math.max(8, branchGap * 0.45));
+  const trunkStartY = Math.min(source.y, ...branchStartYs);
+  const trunkEndY = Math.max(source.y, ...branchStartYs);
   const parts = [
-    curveSegment(source, { x: trunkX, y: source.y }, direction),
-    `M ${roundPathNumber(trunkX)} ${roundPathNumber(minY + cornerRadius)}`,
-    `L ${roundPathNumber(trunkX)} ${roundPathNumber(maxY - cornerRadius)}`
-  ];
+    curveSegment(source, { x: resolvedGeometry.trunkX, y: source.y }, direction),
+    trunkLineSegment(resolvedGeometry.trunkX, trunkStartY, trunkEndY)
+  ].filter(Boolean);
 
   for (const target of sortedTargets) {
-    parts.push(branchPathFromTrunk(trunkX, target, direction, source.y, cornerRadius));
+    parts.push(
+      branchPathFromTrunk(
+        resolvedGeometry.trunkX,
+        target,
+        direction,
+        source.y,
+        resolvedGeometry.cornerRadius
+      )
+    );
   }
 
   return parts.join(" ");
 }
 
+function temporaryConnectorPathToChildren(
+  source: Point,
+  solidTargets: Point[],
+  temporaryTargets: Point[],
+  direction: Direction,
+  geometry: ConnectorGeometry
+): string {
+  if (temporaryTargets.length === 0) {
+    return "";
+  }
+
+  if (solidTargets.length === 0) {
+    return connectorPathToChildren(source, temporaryTargets, direction, geometry);
+  }
+
+  const sortedTemporaryTargets = sortPointsByY(temporaryTargets);
+  const solidBranchStartYs = solidTargets.map((target) =>
+    branchStartY(target, source.y, geometry.cornerRadius)
+  );
+  const temporaryBranchStartYs = sortedTemporaryTargets.map((target) =>
+    branchStartY(target, source.y, geometry.cornerRadius)
+  );
+  const solidConnectionYs = [source.y, ...solidBranchStartYs];
+  const solidMinY = Math.min(...solidConnectionYs);
+  const solidMaxY = Math.max(...solidConnectionYs);
+  const temporaryMinY = Math.min(...temporaryBranchStartYs);
+  const temporaryMaxY = Math.max(...temporaryBranchStartYs);
+  const parts = [
+    temporaryMinY < solidMinY
+      ? trunkLineSegment(geometry.trunkX, solidMinY, temporaryMinY)
+      : "",
+    temporaryMaxY > solidMaxY
+      ? trunkLineSegment(geometry.trunkX, solidMaxY, temporaryMaxY)
+      : ""
+  ];
+
+  for (const target of sortedTemporaryTargets) {
+    parts.push(
+      branchPathFromTrunk(
+        geometry.trunkX,
+        target,
+        direction,
+        source.y,
+        geometry.cornerRadius
+      )
+    );
+  }
+
+  return parts.filter(Boolean).join(" ");
+}
+
 type Point = { x: number; y: number };
+
+type ConnectorGeometry = {
+  trunkX: number;
+  cornerRadius: number;
+};
+
+function connectorGeometry(
+  source: Point,
+  targets: Point[],
+  direction: Direction
+): ConnectorGeometry {
+  const trunkX = branchTrunkX(source, targets, direction);
+  const branchGap = Math.min(...targets.map((target) => Math.abs(target.x - trunkX)));
+  return {
+    trunkX,
+    cornerRadius: Math.min(18, Math.max(8, branchGap * 0.45))
+  };
+}
+
+function sortPointsByY(points: Point[]): Point[] {
+  return [...points].sort((left, right) => left.y - right.y);
+}
+
+function trunkLineSegment(trunkX: number, startY: number, endY: number): string {
+  if (Math.abs(endY - startY) < 0.1) {
+    return "";
+  }
+
+  return [
+    `M ${roundPathNumber(trunkX)} ${roundPathNumber(startY)}`,
+    `L ${roundPathNumber(trunkX)} ${roundPathNumber(endY)}`
+  ].join(" ");
+}
 
 function connectorPathBetween(source: Point, target: Point, direction: Direction): string {
   return curveSegment(source, target, direction);
@@ -5733,11 +5829,7 @@ function branchPathFromTrunk(
   cornerRadius: number
 ): string {
   const sign = direction === "right" ? 1 : -1;
-  const verticalDelta = target.y - sourceY;
-  const isCenterBranch = Math.abs(verticalDelta) <= cornerRadius;
-  const startY = isCenterBranch
-    ? target.y
-    : target.y - Math.sign(verticalDelta) * cornerRadius;
+  const startY = branchStartY(target, sourceY, cornerRadius);
   const elbowX = trunkX + sign * cornerRadius;
   const elbow = { x: elbowX, y: target.y };
 
@@ -5748,6 +5840,13 @@ function branchPathFromTrunk(
     `${roundPathNumber(elbow.x)} ${roundPathNumber(elbow.y)}`,
     curveSegment(elbow, target, direction)
   ].join(" ");
+}
+
+function branchStartY(target: Point, sourceY: number, cornerRadius: number): number {
+  const verticalDelta = target.y - sourceY;
+  return Math.abs(verticalDelta) <= cornerRadius
+    ? target.y
+    : target.y - Math.sign(verticalDelta) * cornerRadius;
 }
 
 function branchTrunkX(source: Point, targets: Point[], direction: Direction): number {
@@ -5769,6 +5868,59 @@ function isInteractivePanTarget(target: EventTarget | null): boolean {
     target instanceof Element &&
     target.closest("input, button, textarea, select, a, [role='button']") !== null
   );
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const element = target.closest<HTMLInputElement | HTMLTextAreaElement | HTMLElement>(
+    "input, textarea, [contenteditable='true']"
+  );
+  if (!element) {
+    return false;
+  }
+
+  if (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement
+  ) {
+    return !element.readOnly && !element.disabled;
+  }
+
+  return true;
+}
+
+function isTextEntryKeyEvent(event: KeyboardEvent): boolean {
+  const key = event.key.toLowerCase();
+  if (!event.metaKey && !event.ctrlKey) {
+    return true;
+  }
+
+  return (
+    key === "a" ||
+    key === "c" ||
+    key === "v" ||
+    key === "x" ||
+    key === "y" ||
+    key === "z" ||
+    key === "backspace" ||
+    key === "delete" ||
+    key.startsWith("arrow")
+  );
+}
+
+function normalizeDraftFileName(value: string): string {
+  const leaf =
+    value
+      .trim()
+      .split(/[\\/]/)
+      .filter(Boolean)
+      .pop() ?? "";
+  const sanitized = leaf.replace(/[<>:"|?*\u0000-\u001f]/g, "-").trim();
+  const fallback = sanitized.length > 0 ? sanitized : defaultDraftFileName;
+  return /\.(md|markdown)$/i.test(fallback) ? fallback : `${fallback}.md`;
 }
 
 function errorMessage(error: unknown): string {
