@@ -582,6 +582,12 @@ kbd {
   caret-color: #0f6f54;
 }
 
+.node-input.transient-empty {
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.56);
+  opacity: 0.62;
+}
+
 .root-node textarea.search-match,
 .node-input.search-match {
   border-color: #d97706;

@@ -2795,6 +2795,7 @@ function NodeEditor({
             selected && "selected",
             selected && !primarySelected && "secondary-selected",
             editing && "editing",
+            node.text.length === 0 && node.children.length === 0 && "transient-empty",
             searchMatchPaths.has(node.path) && "search-match",
             currentSearchPath === node.path && "current-search-match",
             !editing && "draggable-node",

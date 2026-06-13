@@ -117,6 +117,27 @@ test("empty leaf nodes are removed when they lose focus", async ({ page }) => {
   await expect(markdownOutput(page)).toHaveText("#\n\n- A\n");
 });
 
+test("empty leaf nodes look transient until content is typed", async ({ page }) => {
+  const node = nodeInput(page, "right/0");
+
+  await expect(node).toHaveClass(/transient-empty/);
+  await expect.poll(() => elementOpacity(node)).toBe("0.62");
+
+  await node.fill("A");
+
+  await expect(node).not.toHaveClass(/transient-empty/);
+  await expect.poll(() => elementOpacity(node)).toBe("1");
+});
+
+test("empty parent nodes are not shown as transient", async ({ page }) => {
+  const parent = nodeInput(page, "right/0");
+
+  await parent.press("Tab");
+
+  await expect(parent).not.toHaveClass(/transient-empty/);
+  await expect(nodeInput(page, "right/0/0")).toHaveClass(/transient-empty/);
+});
+
 test("creating from an empty leaf replaces it instead of leaving another blank", async ({
   page
 }) => {
@@ -1421,4 +1442,8 @@ async function elementWidth(locator: ReturnType<Page["locator"]>): Promise<numbe
 
 async function elementHeight(locator: ReturnType<Page["locator"]>): Promise<number> {
   return locator.evaluate((element) => Math.round(element.getBoundingClientRect().height));
+}
+
+async function elementOpacity(locator: ReturnType<Page["locator"]>): Promise<string> {
+  return locator.evaluate((element) => getComputedStyle(element).opacity);
 }

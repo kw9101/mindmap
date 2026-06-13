@@ -647,6 +647,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - 키바인딩 도움말을 추가했다. 툴바 `?` 버튼, 선택 모드 `?`, `Cmd/Ctrl + /`로 현재 구현된 단축키를 확인할 수 있다.
 - 선택 모드를 추가했다. Esc로 편집 모드에서 빠져나오고, 선택 모드에서 화살표는 화면 좌표 기준으로 위/아래/왼쪽/오른쪽의 가장 가까운 노드를 선택한다.
 - 선택 모드와 편집 모드는 DOM class와 색상으로 구분한다. 선택은 파랑, 편집은 초록 계열 테두리와 caret 색으로 표시한다.
+- 텍스트와 자식이 모두 없는 빈 리프 노드는 반투명 점선으로 표시해, 내용 없이 포커스를 잃으면 삭제될 임시 노드임을 보여준다.
 - 클립보드 subtree 복사/잘라내기/붙여넣기를 추가했다. 브라우저 Clipboard API가 없을 때는 Tauri/native 또는 textarea fallback을 사용하며, 복사 내용은 앱 전용 메타데이터 없이 Markdown 목록 텍스트만 사용한다.
 - 다중 선택을 추가했다. `Cmd/Ctrl+Click`, `Shift+Click`, `Shift+Arrow`로 여러 노드를 선택하고, 복사/잘라내기/삭제/형제 묶음 이동을 한 번에 수행한다.
 - 노드 접기/펼치기를 추가했다. 접힘 상태는 Markdown이 아니라 view state로 저장하며, 선택 모드 `Space` 또는 노드 토글 버튼으로 조작한다.
@@ -657,7 +658,7 @@ SQLite에 저장하지 않는 문서 데이터:
 - Tauri file watcher 생성 경로를 테스트 가능한 함수로 분리하고, 같은 경로를 사용하는 ignored stress test를 추가했다. `pnpm test:tauri:watch`는 기본 120회, 250ms 간격 반복 쓰기로 대상 Markdown 변경 이벤트를 확인한다.
 - 노드 검색 UI를 추가했다. `Cmd/Ctrl+F`로 검색창에 포커스하고, 검색어 match를 highlight하고, 다음/이전 결과로 이동하며, 접힌 조상은 자동으로 펼쳐 결과를 보이게 한다.
 - 커맨드 팔렛트를 추가했다. `Cmd/Ctrl+K` 또는 `Cmd/Ctrl+Shift+P`로 열고, 명령 이름/키워드로 검색한 뒤 `Enter`로 검색, 파일, 히스토리, 노드 편집, 클립보드, 줌/팬, 도움말 명령을 실행한다.
-- 검증: Vitest 82개 통과, Playwright e2e 61개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
+- 검증: Vitest 82개 통과, Playwright e2e 63개 통과, TypeScript check 통과, Vite production build 통과, `cargo test` 통과, `cargo check` 통과, watcher stress test 5회 샘플 통과.
 
 ## 17. 남은 구현 후보
 
